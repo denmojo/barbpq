@@ -4,3 +4,8 @@
 *.user
 .svn/*
 .vs/*
+# web UI overlay build output
+staging/
+out/
+overlay/node_modules/
+overlay/dist/
