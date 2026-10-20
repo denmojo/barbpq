@@ -11,6 +11,7 @@
 #include "asmstrucs.h"
 #include "telnetserver.h"
 #include "kiss.h"
+#include "uiapi.h" // uiapi hook
 
 // Constants
 #define TOKEN_SIZE 32 // Length of the authentication token
@@ -77,6 +78,12 @@ struct API APIList[] =
 	"/api/users", 10, sendUserList, 0,
 	"/api/mheard", 11, sendPortMHList, 0,
 	"/api/tcpqueues", 14, sendPortQState, 0,
+	"/api/ui/station", 15, uiapi_api_station, 0, // uiapi hook
+	"/api/ui/links", 13, uiapi_api_links, 0, // uiapi hook
+	"/api/ui/cms", 11, uiapi_api_cms, 0, // uiapi hook
+	"/api/ui/counts", 14, uiapi_api_counts, 0, // uiapi hook
+	"/api/ui/mheard", 14, uiapi_api_mheard, 0, // uiapi hook
+	"/api/ui/events", 14, uiapi_api_events, 0, // uiapi hook
 	"/api/v1/config", 14, sendWhatsPacConfig, AuthSysop,
 	"/api/v1/state", 13, sendWhatsPacState, AuthSysop
 };

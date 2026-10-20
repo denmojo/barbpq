@@ -32,6 +32,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 #include "kernelresource.h"
 #include "cheaders.h"
 #include "tncinfo.h"
+#include "uiapi.h" // uiapi hook
 #ifndef LINBPQ
 #include <commctrl.h>
 #endif
@@ -1508,6 +1509,7 @@ DoMove:
 	MHBASE->MHDIGI = Mode;
 	MHBASE->MHTIME = NOW;
 	MHBASE->MHCOUNT = ++OldCount;
+	uiapi_count(UI_FRAMES); // uiapi hook
 
 	memcpy(MHBASE->MHLocator, LOC, 6);
 	strcpy(MHBASE->MHFreq, ReportFreq);

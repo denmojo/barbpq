@@ -21,6 +21,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 
 #include "cheaders.h"
 #include "bpqmail.h"
+#include "uiapi.h" // uiapi hook
 
 #ifdef WIN32
 //#include "C:\Program Files (x86)\GnuWin32\include\iconv.h"
@@ -1495,6 +1496,7 @@ VOID SaveHousekeeping(struct HTTPConnectionInfo * Session, char * MsgPtr, char *
 		LTAT = GetOverrideFromString(LTATString);
  
 		SaveConfig(ConfigName);
+		uiapi_event("mailsave", "{\"what\":\"config\"}"); // uiapi hook
 		GetConfig(ConfigName);
 
 		// Calulate time to run Housekeeping
@@ -1766,6 +1768,7 @@ VOID ProcessConfUpdate(struct HTTPConnectionInfo * Session, char * MsgPtr, char 
 		}
 
 		SaveConfig(ConfigName);
+		uiapi_event("mailsave", "{\"what\":\"config\"}"); // uiapi hook
 		GetConfig(ConfigName);
 	}
 	
@@ -1819,6 +1822,7 @@ VOID ProcessUIUpdate(struct HTTPConnectionInfo * Session, char * MsgPtr, char * 
 		}
 
 		SaveConfig(ConfigName);
+		uiapi_event("mailsave", "{\"what\":\"config\"}"); // uiapi hook
 		GetConfig(ConfigName);
 	}
 
@@ -1906,6 +1910,7 @@ VOID SaveFwdCommon(struct HTTPConnectionInfo * Session, char * MsgPtr, char * Re
 	}
 	
 	SaveConfig(ConfigName);
+	uiapi_event("mailsave", "{\"what\":\"config\"}"); // uiapi hook
 	GetConfig(ConfigName);
 
 	SendFwdMainPage(Reply, RLen, Session->Key);
@@ -2039,6 +2044,7 @@ VOID SaveFwdDetails(struct HTTPConnectionInfo * Session, char * MsgPtr, char * R
 
 
 		SaveConfig(ConfigName);
+		uiapi_event("mailsave", "{\"what\":\"config\"}"); // uiapi hook
 		GetConfig(ConfigName);
 
 		ReinitializeFWDStruct(Session->User);
@@ -2095,6 +2101,7 @@ VOID ProcessUserUpdate(struct HTTPConnectionInfo * Session, char * MsgPtr, char 
 				free(USER);
 			
 				SaveUserDatabase();
+				uiapi_event("mailsave", "{\"what\":\"users\"}"); // uiapi hook
 
 				Session->User = UserRecPtr[1];
 
@@ -2247,6 +2254,7 @@ VOID ProcessUserUpdate(struct HTTPConnectionInfo * Session, char * MsgPtr, char 
 		_strupr(USER->HomeBBS);
 
 		SaveUserDatabase();
+		uiapi_event("mailsave", "{\"what\":\"users\"}"); // uiapi hook
 		UpdateWPWithUserInfo(USER);
 
 		*RLen = SendUserDetails(Session, Reply, Session->Key);

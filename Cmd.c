@@ -34,6 +34,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 //#include "SHELLAPI.H"
 
 #include "cheaders.h"
+#include "uiapi.h" // uiapi hook
 #include "bpqaprs.h"
 #include "kiss.h"
 
@@ -876,6 +877,7 @@ BOOL cATTACHTOBBS(TRANSPORTENTRY * Session, UINT Mask, int Paclen, int * AnySess
 				NewSess->SESS_APPLFLAGS = HOSTSESS->HOSTAPPLFLAGS;
 
 				NewSess->SESSPACLEN = Paclen;
+				uiapi_count(UI_SESSIONS); // uiapi hook
 
 				return TRUE;
 			}
@@ -1084,6 +1086,7 @@ VOID APPLCMD(TRANSPORTENTRY * Session, char * Bufferptr, char * CmdTail, struct 
 		memcpy(OrigCmdBuffer, ALIASPTR, ALIASLEN);	// In case original case version needed
 		
 		ALIASINVOKED = 1;							// To prevent Alias Loops 	
+		uiapi_count(UI_SESSIONS); // uiapi hook
 
 		// Set secure session for application alias in case telnet outward connect
 
@@ -2822,6 +2825,7 @@ NoPort:
 						memcpy(OrigCmdBuffer, APPL->APPLALIASVAL, ALIASLEN);	// In case original case version needed
 
 						ALIASINVOKED = TRUE;			//	 To prevent Alias Loops 	
+						uiapi_count(UI_SESSIONS); // uiapi hook
 					}
 					else
 					{	

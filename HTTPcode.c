@@ -28,6 +28,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 #include <stdlib.h>
 
 #include "tncinfo.h"
+#include "uiapi.h" // uiapi hook
 #include "time.h"
 #include "bpq32.h"
 #include "telnetserver.h"
@@ -1913,6 +1914,7 @@ VOID SaveConfigFile(SOCKET sock , char * MsgPtr, char * Rest, int LOCAL)
 			else
 				sprintf_s(Mess, sizeof(Mess), "Configuration Saved, Orig Length %d New Length %d", 
 				STAT.st_size, MsgLen);
+			uiapi_event("cfgsave", WriteLen == MsgLen ? "{\"ok\":true}" : "{\"ok\":false}"); // uiapi hook
 		}
 
 		ReplyLen = sprintf(Reply, "<html><script>alert(\"%s\");window.close();</script></html>", Mess);

@@ -40,6 +40,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 
 #include "cheaders.h"
 #include "tncinfo.h"
+#include "uiapi.h" // uiapi hook
 
 #ifdef WIN32
 #include <winioctl.h>
@@ -5781,6 +5782,7 @@ int Telnet_Connected(struct TNCINFO * TNC, struct ConnectionInfo * sockptr, SOCK
 	if (sockptr->CMSSession)
 	{
 		sockptr->LoginState = 3;			// Password State
+		if (sockptr->RelaySession == 0) uiapi_cms_result(1); // uiapi hook
 
 		sockptr->UserPointer  = &CMSUser;
 		strcpy(sockptr->Callsign, TNC->Streams[Stream].MyCall);
@@ -6278,6 +6280,7 @@ int CMSConnect(struct TNCINFO * TNC, struct TCPINFO * TCP, struct STREAMINFO * S
 		if (n == TCP->NumberofCMSAddrs)
 		{
 			TCP->CMSOK = FALSE;
+			uiapi_cms_result(0); // uiapi hook
 #ifndef LINBPQ
 			DrawMenuBar(TNC->hDlg);	
 #endif

@@ -22,6 +22,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 //	Utility Routines
 
 #include "bpqmail.h"
+#include "uiapi.h" // uiapi hook
 #ifdef WIN32
 #include "Winspool.h"
 #else
@@ -3322,6 +3323,7 @@ void TrytoSend()
 	
 						clear_fwd_bit(Msg->fbbs, conn->UserPointer->BBSNumber);
 						set_fwd_bit(Msg->forw, conn->UserPointer->BBSNumber);
+						uiapi_count(UI_MESSAGES); // uiapi hook
 
 						//  Only mark as forwarded if sent to all BBSs that should have it
 			
@@ -6391,6 +6393,7 @@ nextline:
 		}
 	}
 	
+	uiapi_count(UI_MESSAGES); // uiapi hook
 	CreateMessageFile(conn, Msg);
 
 	BIDRec = AllocateBIDRecord();
@@ -7955,6 +7958,7 @@ BOOL ForwardMessagestoFile(CIRCUIT * conn, char * FN)
 			
 		clear_fwd_bit(conn->FwdMsg->fbbs, user->BBSNumber);
 		set_fwd_bit(conn->FwdMsg->forw, user->BBSNumber);
+		uiapi_count(UI_MESSAGES); // uiapi hook
 
 		//  Only mark as forwarded if sent to all BBSs that should have it
 			
@@ -8147,6 +8151,7 @@ BOOL ConnecttoBBS (struct UserInfo * user)
 			conn->UserPointer = user;
 
 			Logprintf(LOG_BBS, conn, '|', "Connecting to BBS %s", user->Call);
+			uiapi_forward_event(user->Call, ForwardingInfo->ConnectScript ? ForwardingInfo->ConnectScript[0] : NULL); // uiapi hook
 
 			ForwardingInfo->MoreLines = TRUE;
 			
@@ -11971,6 +11976,7 @@ VOID ProcessTextFwdLine(ConnectionInfo * conn, struct UserInfo * user, char * Bu
 
 		clear_fwd_bit(conn->FwdMsg->fbbs, user->BBSNumber);
 		set_fwd_bit(conn->FwdMsg->forw, user->BBSNumber);
+		uiapi_count(UI_MESSAGES); // uiapi hook
 
 		//  Only mark as forwarded if sent to all BBSs that should have it
 			
@@ -14934,6 +14940,7 @@ void ProcessSyncModeMessage(CIRCUIT * conn, struct UserInfo * user, char* Buffer
 
 				clear_fwd_bit(conn->FwdMsg->fbbs, user->BBSNumber);
 				set_fwd_bit(conn->FwdMsg->forw, user->BBSNumber);
+				uiapi_count(UI_MESSAGES); // uiapi hook
 				conn->UserPointer->ForwardingInfo->MsgCount--;
 
 				//  Only mark as forwarded if sent to all BBSs that should have it

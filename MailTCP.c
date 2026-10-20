@@ -22,6 +22,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 //	TCP access module - POP and SMTP
 
 #include "bpqmail.h"
+#include "uiapi.h" // uiapi hook
 
 VOID ReleaseSock(SOCKET sock);
 void Base64EncodeAndSend(SocketConn * sockptr, UCHAR * Msg, int Len);
@@ -3199,6 +3200,7 @@ VOID ProcessSMTPClientMessage(SocketConn * sockptr, char * Buffer, int Len)
 	
 				clear_fwd_bit(Msg->fbbs, bbs->BBSNumber);
 				set_fwd_bit(Msg->forw, bbs->BBSNumber);
+				uiapi_count(UI_MESSAGES); // uiapi hook
 
 				//  Only mark as forwarded if sent to all BBSs that should have it
 			

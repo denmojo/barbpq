@@ -35,6 +35,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 				 
 #include "cheaders.h"
 #include "tncinfo.h"
+#include "uiapi.h" // uiapi hook
 
 // This is needed to link with a lib built from source
 
@@ -577,6 +578,7 @@ DoMove:
 	MHBASE->MHDIGI = DIGI;
 	MHBASE->MHTIME = NOW;
 	MHBASE->MHCOUNT = ++OldCount;
+	uiapi_count(UI_FRAMES); // uiapi hook
 	strcpy(MHBASE->MHFreq, Freq);
 	MHBASE->MHLocator[0] = 0;
 
@@ -1501,6 +1503,7 @@ VOID L2SABM(struct _LINKTABLE * LINK, struct PORTCONTROL * PORT, MESSAGE * Buffe
 		L2SENDUA(PORT, Buffer, ADJBUFFER);
 
 		hookL2SessionAccepted(PORT->PORTNUMBER, fromCall, toCall, LINK);
+		uiapi_count(UI_SESSIONS); // uiapi hook
 
 		SendL2ToMonMap(PORT, fromCall, '+', 'I');		
 	

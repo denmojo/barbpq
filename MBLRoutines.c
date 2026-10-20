@@ -22,6 +22,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 // MBL-Style Forwarding Routines
 
 #include "bpqmail.h"
+#include "uiapi.h" // uiapi hook
 
 void SendMessageReadEvent(char * call, struct MsgInfo * Msg);
 void MQTTMessageEvent(void* message);
@@ -189,6 +190,7 @@ VOID ProcessMBLLine(CIRCUIT * conn, struct UserInfo * user, UCHAR* Buffer, int l
 
 			clear_fwd_bit(conn->FwdMsg->fbbs, user->BBSNumber);
 			set_fwd_bit(conn->FwdMsg->forw, user->BBSNumber);
+			uiapi_count(UI_MESSAGES); // uiapi hook
 			conn->UserPointer->ForwardingInfo->MsgCount--;
 
 			//  Only mark as forwarded if sent to all BBSs that should have it
@@ -296,6 +298,7 @@ VOID ProcessMBLLine(CIRCUIT * conn, struct UserInfo * user, UCHAR* Buffer, int l
 			conn->FBBMsgsSent = FALSE;
 			clear_fwd_bit(conn->FwdMsg->fbbs, user->BBSNumber);
 			set_fwd_bit(conn->FwdMsg->forw, user->BBSNumber);
+			uiapi_count(UI_MESSAGES); // uiapi hook
 
 			//  Only mark as forwarded if sent to all BBSs that should have it
 			
@@ -357,6 +360,7 @@ VOID ProcessMBLLine(CIRCUIT * conn, struct UserInfo * user, UCHAR* Buffer, int l
 
 			clear_fwd_bit(conn->FwdMsg->fbbs, user->BBSNumber);
 			set_fwd_bit(conn->FwdMsg->forw, user->BBSNumber);
+			uiapi_count(UI_MESSAGES); // uiapi hook
 
 			//  Only mark as forwarded if sent to all BBSs that should have it
 			

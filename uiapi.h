@@ -1,4 +1,4 @@
-/* uiapi: read-only data for the web UI. Counter ring part. */
+/* uiapi: read-only data for the web UI: counter ring, event log, CMS state, JSON handlers. */
 
 #ifndef UIAPI_H
 #define UIAPI_H
@@ -35,5 +35,26 @@ void uiapi_shutdown(void);
 
 /* Call about once a second; saves the ring each time a 5 minute bucket closes */
 void uiapi_tick(time_t now);
+
+/* Event log. kind is lower-case letters; detail_json one JSON object of
+   printable ASCII under 384 bytes (anything else is logged as {}). Kept in
+   memory (last 200) and appended to uiapi-events.log; any thread. */
+void uiapi_event(const char *kind, const char *detail_json);
+void uiapi_event_at(const char *kind, const char *detail_json, time_t now);
+
+/* A "forward" event for a connect to partner BBS bbs. Only a port number is
+   taken from the first connect script line, never any other word of it. */
+void uiapi_forward_event(const char *bbs, const char *script);
+
+/* Outcome of a CMS connect attempt (1 connected, 0 all servers failed) */
+void uiapi_cms_result(int ok);
+
+/* /api/ui handlers for nodeapi.c APIList */
+int uiapi_api_station(char *response, char *token, char *param, int Local);
+int uiapi_api_links(char *response, char *token, char *param, int Local);
+int uiapi_api_cms(char *response, char *token, char *param, int Local);
+int uiapi_api_counts(char *response, char *token, char *param, int Local);
+int uiapi_api_mheard(char *response, char *token, char *param, int Local);
+int uiapi_api_events(char *response, char *token, char *param, int Local);
 
 #endif

@@ -23,6 +23,7 @@ along with LinBPQ/BPQ32.  If not, see http://www.gnu.org/licenses
 
 #include "cheaders.h"
 #include "bpqmail.h"
+#include "uiapi.h" // uiapi hook
 #ifdef WIN32
 #include <Iphlpapi.h>
 //#include "C:\Program Files (x86)\GnuWin32\include\iconv.h"
@@ -1454,6 +1455,8 @@ int main(int argc, char * argv[])
 #endif
 
 
+	uiapi_init((char *)ConfigDirectory); // uiapi hook
+	uiapi_event("restart", "{}"); // uiapi hook
 	GetSemaphore(&Semaphore, 0);
 
 	if (Start() != 0)
@@ -1884,6 +1887,7 @@ int main(int argc, char * argv[])
 		Sleep(10);
 
 		NOW = time(NULL);
+		uiapi_tick(NOW); // uiapi hook
 
 		GetSemaphore(&Semaphore, 2);
 
@@ -1903,6 +1907,7 @@ int main(int argc, char * argv[])
 	}
 
 	hookNodeClosing("Shutdown");
+	uiapi_shutdown(); // uiapi hook
 	Sleep(500);
 
 	printf("Closing Ports\n");
