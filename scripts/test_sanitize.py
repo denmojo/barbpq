@@ -38,7 +38,7 @@ def test_refuses_when_secret_survives():
 def test_leak_error_names_class_not_value():
     with pytest.raises(LeakError) as e:
         verify_no_leak(original=" CMSPASS=abc12345\n", sanitized=" CMSPASS=abc12345\n")
-    assert "abc12345" not in str(e.value) and "CMSPASS" in str(e.value)
+    assert "abc12345" not in str(e.value) and "pass key" in str(e.value)
 
 
 def test_clean_sanitize_passes_leak_check():
@@ -74,3 +74,98 @@ def test_vara_and_direwolf_endpoints_isolated_telnet_untouched():
     assert "ADDR 127.0.0.1 18300" in out
     assert "IPADDR=127.0.0.1" in out and "TCPPORT=18001" in out
     assert "8300" not in out.replace("18300", "") and "10.0.0.9" not in out
+
+
+# ---- fix round 1 ----
+
+def test_bpq_unquoted_pass_keys_replaced():
+    cfg = (" PASSWORD=sysopsecret\n MQTT_PASS=mqttsecret ; c\n"
+           " ISPasscode=12345678\n")
+    out = sanitize_bpq(cfg)
+    for s in ("sysopsecret", "mqttsecret", "12345678"):
+        assert s not in out
+    assert " MQTT_PASS=staging ; c" in out
+    verify_no_leak(cfg, out)
+
+
+def test_leak_check_catches_unsanitized_bpq_pass_keys():
+    for line in (" PASSWORD=sysopsecret\n", " MQTT_PASS=mqttsecret\n"):
+        with pytest.raises(LeakError):
+            verify_no_leak(line, line)
+
+
+def test_leak_check_independent_of_quoting():
+    orig = '  Weird_Pass : zz99secret;\n'
+    with pytest.raises(LeakError):
+        verify_no_leak(orig, orig)
+
+
+def test_bbsusers_crlf():
+    rec = '  RMS = "a1111^b2222^c3333^d^e^f^g^0^16^0^2^0^0^0^x,,^y,,";\r\n'
+    out = sanitize_linmail("BBSUsers : \r\n{\r\n" + rec + "};\r\n")
+    assert "a1111" not in out and "^16^0^2^" in out
+
+
+def test_bbsusers_brace_on_same_line():
+    rec = '  RMS = "a1111^b2222^c3333^d^e^f^g^0^16^0^2^0^0^0^x,,^y,,";\n'
+    out = sanitize_linmail("BBSUsers : {\n" + rec + "};\n")
+    assert "a1111" not in out and "b2222" not in out
+
+
+def test_bbsusers_escaped_quote_in_record():
+    rec = '  RMS = "a1111^b\\"2222^c3333^d^e^f^g^0^16^0^2^0^0^0^x,,^y,,";\n'
+    text = "BBSUsers : \n{\n" + rec + "};\n"
+    out = sanitize_linmail(text)
+    assert "b2222" not in out and "a1111" not in out and "^16^0^2^" in out
+    verify_no_leak(text, out)
+
+
+def test_escaped_quote_in_pass_value_fully_blanked():
+    text = '  CMSPass = "ab\\"cdSECRET";\n'
+    out = sanitize_linmail(text)
+    assert "SECRET" not in out and 'CMSPass = "";' in out
+    with pytest.raises(LeakError):
+        verify_no_leak(text, text)
+
+
+def test_bbsusers_unparsed_fails_closed():
+    with pytest.raises(LeakError, match="BBSUsers unparsed"):
+        sanitize_linmail("BBSUsers\n  RMS = whatever\n")
+    with pytest.raises(LeakError, match="BBSUsers unparsed"):
+        verify_no_leak("BBSUsers\n  RMS = whatever\n", "")
+
+
+def test_bbsusers_stray_line_fails_closed():
+    text = 'BBSUsers : \n{\n  RMS = "a^b^c^d^e^f^g^0^1^0^1^0^0^0^x";\n  junk line\n};\n'
+    with pytest.raises(LeakError, match="BBSUsers unparsed"):
+        sanitize_linmail(text)
+    with pytest.raises(LeakError, match="BBSUsers unparsed"):
+        verify_no_leak(text, "")
+
+
+def test_map_relay_mqtt_hosts_rewritten():
+    cfg = (" NODEMAPSERVER=update.g8bpq.net\n CHATMAPSERVER=chatupdate.g8bpq.net\n"
+           " RELAYHOST=relay.example.org\n MQTT_HOST=mqtt.example.org ;c\n")
+    out = sanitize_bpq(cfg)
+    assert "g8bpq" not in out and "example.org" not in out
+    assert out.count("127.0.0.1") == 4 and "MQTT_HOST=127.0.0.1 ;c" in out
+
+
+def test_isp_hosts_blanked():
+    out = sanitize_linmail('  ISPSMTPName = "smtp.example.org";\n'
+                           '  ISPPOP3Name = "pop.example.org";\n')
+    assert "example.org" not in out
+    assert 'ISPSMTPName = "";' in out and 'ISPPOP3Name = "";' in out
+
+
+def test_connect_scripts_blanked_except_rms():
+    text = ('BBSForwarding : \n{\n  RMS : \n  {\n    ConnectScript = "C 1 CMS";\n  };\n'
+            '  OTHER : \n  {\n    ConnectScript = "C 2 N0XYZ";\n  };\n};\n')
+    out = sanitize_linmail(text)
+    assert 'ConnectScript = "C 1 CMS";' in out
+    assert "N0XYZ" not in out and 'ConnectScript = "";' in out
+
+
+def test_empty_value_with_comment_is_not_a_secret():
+    orig = " CMSPASS= ; CMS gateway password goes here\n"
+    verify_no_leak(orig, sanitize_bpq(orig))
