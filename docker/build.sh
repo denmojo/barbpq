@@ -19,9 +19,8 @@ run_in_container() {
 prepare() {
   docker_up
   trap docker_down EXIT
-  if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    docker build --platform linux/amd64 --memory 1500m -t "$IMAGE" docker
-  fi
+  # Always build: layer cache makes it near-free when the Dockerfile is unchanged.
+  docker build --platform linux/amd64 --memory 1500m -t "$IMAGE" docker
 }
 
 case "$MODE" in
