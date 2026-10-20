@@ -13,7 +13,7 @@ OBJS = pngwtran.o pngrtran.o pngset.o pngrio.o pngwio.o pngtrans.o pngrutil.o pn
  MailCommands.o MailDataDefs.o LinBPQ.o MailRouting.o MailTCP.o MBLRoutines.o md5.o Moncode.o \
  NNTPRoutines.o RigControl.o TelnetV6.o WINMOR.o TNCCode.o UZ7HODrv.o WPRoutines.o \
  SCSTrackeMulti.o SCSPactor.o SCSTracker.o HanksRT.o  UIRoutines.o AGWAPI.o AGWMoncode.o \
- DRATS.o FreeDATA.o base64.o Events.o nodeapi.o mailapi.o mqtt.o RHP.o NETROMTCP.o
+ DRATS.o FreeDATA.o base64.o Events.o nodeapi.o mailapi.o mqtt.o RHP.o NETROMTCP.o uiapi.o # uiapi
 
 # Configuration:
 
@@ -83,3 +83,8 @@ clean :
 	rm *.d
 	rm linbpq $(OBJS)
 
+# uiapi: unit tests for the counter ring (standalone, no linbpq headers)
+uitest:
+	gcc -std=gnu99 -Wall -DUIAPI_TEST -g -o tests/uiapi_ring_test tests/uiapi_ring_test.c uiapi.c -lpthread
+	tests/uiapi_ring_test
+	rm -f tests/uiapi_ring_test
