@@ -1,4 +1,11 @@
-FROM --platform=linux/amd64 debian:bookworm-slim
+# build.sh passes --platform linux/amd64 to docker build.
+FROM debian:bookworm-slim
+
+# Upstream's makefile ends with `sudo setcap ...`. The container has no sudo,
+# and capabilities set here would not survive copying the binary out, so the
+# shim reports the call and succeeds.
+RUN printf '#!/bin/sh\necho "sudo shim: skipped: $*" >&2\nexit 0\n' > /usr/local/bin/sudo \
+ && chmod +x /usr/local/bin/sudo
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \

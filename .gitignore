@@ -9,3 +9,4 @@ staging/
 out/
 overlay/node_modules/
 overlay/dist/
+output.map
