@@ -8,8 +8,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # libbacktrace-dev is not packaged in bookworm; build it from source.
-RUN git clone --depth 1 https://github.com/ianlancetaylor/libbacktrace /tmp/libbacktrace \
+RUN git clone https://github.com/ianlancetaylor/libbacktrace /tmp/libbacktrace \
  && cd /tmp/libbacktrace \
+ && git checkout 0b9b49cf4a2c9229fc052d6716e1528b2f23e91a \
  && ./configure --prefix=/usr/local \
  && make -j2 \
  && make install \
