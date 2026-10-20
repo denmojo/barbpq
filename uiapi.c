@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <time.h>
@@ -17,7 +18,7 @@
 #define UI_WINDOW_SECS	(UI_NBUCKETS * UI_BUCKET_SECS)	/* 86400 */
 #define UI_FULL_SECS	(UI_WINDOW_SECS - UI_BUCKET_SECS)	/* 86100 */
 #define UI_MAXCOUNT	1000000000L
-#define UI_MAGIC	"BPQUIC1\n"
+#define UI_MAGIC	"BPQUIC2\n"
 #define UI_MAGIC_LEN	8
 #define UI_LINE_MAX	128
 
@@ -31,6 +32,8 @@ static struct ui_bucket ring[UI_NBUCKETS];
 static pthread_mutex_t ring_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static char save_path[1024];
+static time_t since;		/* when counting began (0 = unknown); ring_lock */
+static pthread_mutex_t save_lock = PTHREAD_MUTEX_INITIALIZER;
 static time_t last_closed;	/* start of the last bucket we saved after */
 
 static time_t bucket_start(time_t t)
@@ -74,6 +77,7 @@ void uiapi_ring_totals(time_t now, long out[UI_NCOUNTERS], time_t *window_start,
 {
 	int i, c;
 	time_t oldest = 0;
+	int isfull;
 
 	for (c = 0; c < UI_NCOUNTERS; c++)
 		out[c] = 0;
@@ -90,40 +94,56 @@ void uiapi_ring_totals(time_t now, long out[UI_NCOUNTERS], time_t *window_start,
 		if (oldest == 0 || b->start < oldest)
 			oldest = b->start;
 	}
+
+	if (since > 0)
+	{
+		/* counting began at since, whether or not any event followed */
+		oldest = (since > now - UI_WINDOW_SECS) ? since : now - UI_WINDOW_SECS;
+		isfull = (now - since >= UI_FULL_SECS);
+	}
+	else
+		isfull = (oldest != 0 && oldest <= now - UI_FULL_SECS);
 	pthread_mutex_unlock(&ring_lock);
 
 	if (window_start)
 		*window_start = oldest;
 	if (full)
-		*full = (oldest != 0 && oldest <= now - UI_FULL_SECS);
+		*full = isfull;
+}
+
+/* Read a plain decimal number: a digit must come first (no sign, no space) */
+static int parse_num(const char *p, const char **end, long long *v)
+{
+	char *e;
+
+	if (!isdigit((unsigned char)*p))
+		return 0;
+	*v = strtoll(p, &e, 10);
+	*end = e;
+	return 1;
 }
 
 /* Parse one "start sessions messages frames" line. All fields must be present,
    nothing may follow, and the line must end with a newline. */
 static int parse_line(const char *line, long long *start, long n[UI_NCOUNTERS])
 {
-	char *end;
-	long long v;
+	const char *end;
 	int c;
 	size_t len = strlen(line);
 
 	if (len == 0 || line[len - 1] != '\n')
 		return 0;
 
-	v = strtoll(line, &end, 10);
-	if (end == line)
+	if (!parse_num(line, &end, start))
 		return 0;
-	*start = v;
 
 	for (c = 0; c < UI_NCOUNTERS; c++)
 	{
-		const char *p = end;
 		long long x;
 
-		if (*p != ' ')
+		if (*end != ' ' || !parse_num(end + 1, &end, &x))
 			return 0;
-		x = strtoll(p, &end, 10);
-		if (end == p + 1 || x < 0 || x > UI_MAXCOUNT)
+		if (x > UI_MAXCOUNT)
 			return 0;
 		n[c] = (long)x;
 	}
@@ -136,16 +156,26 @@ int uiapi_ring_load(const char *path, time_t now)
 	char line[UI_LINE_MAX];
 	static struct ui_bucket tmp[UI_NBUCKETS];	/* protected by ring_lock */
 	int kept = 0, lines = 0;
+	long long sincev;
+	const char *e;
 
 	pthread_mutex_lock(&ring_lock);
 	memset(ring, 0, sizeof(ring));
 	memset(tmp, 0, sizeof(tmp));
+	since = 0;
 
 	f = fopen(path, "rb");
 	if (f == NULL)
 		goto reject;
 
 	if (fread(line, 1, UI_MAGIC_LEN, f) != UI_MAGIC_LEN || memcmp(line, UI_MAGIC, UI_MAGIC_LEN) != 0)
+		goto reject;
+
+	/* header line: "since <epoch>" (0 = unknown) */
+	if (fgets(line, sizeof(line), f) == NULL || strncmp(line, "since ", 6) != 0
+		|| !parse_num(line + 6, &e, &sincev) || strcmp(e, "\n") != 0)
+		goto reject;
+	if (sincev > (long long)now + UI_BUCKET_SECS)
 		goto reject;
 
 	while (fgets(line, sizeof(line), f) != NULL)
@@ -181,6 +211,7 @@ int uiapi_ring_load(const char *path, time_t now)
 
 	fclose(f);
 	memcpy(ring, tmp, sizeof(ring));
+	since = (time_t)sincev;
 	pthread_mutex_unlock(&ring_lock);
 	return kept;
 
@@ -189,12 +220,29 @@ reject:
 		fclose(f);
 	memset(tmp, 0, sizeof(tmp));
 	memset(ring, 0, sizeof(ring));
+	since = 0;
 	pthread_mutex_unlock(&ring_lock);
 	return -1;
 }
 
-int uiapi_ring_save(const char *path)
+/* Drop state stamped ahead of now (the clock went backward), which a later load
+   would reject. Caller holds ring_lock. */
+static void prune_future(time_t now)
 {
+	int i;
+
+	for (i = 0; i < UI_NBUCKETS; i++)
+		if (ring[i].start > now + UI_BUCKET_SECS)
+			memset(&ring[i], 0, sizeof(ring[i]));
+	if (since > now + UI_BUCKET_SECS)
+		since = now;
+}
+
+int uiapi_ring_save_at(const char *path, time_t now)
+{
+	time_t snapsince;
+	int rc;
+
 	struct ui_bucket snap[UI_NBUCKETS];
 	char tmpname[1100];
 	FILE *f;
@@ -204,15 +252,23 @@ int uiapi_ring_save(const char *path)
 		return -1;
 	snprintf(tmpname, sizeof(tmpname), "%s.tmp", path);
 
+	pthread_mutex_lock(&save_lock);
 	pthread_mutex_lock(&ring_lock);
+	prune_future(now);
 	memcpy(snap, ring, sizeof(snap));
+	snapsince = since;
 	pthread_mutex_unlock(&ring_lock);
 
 	f = fopen(tmpname, "wb");
 	if (f == NULL)
+	{
+		pthread_mutex_unlock(&save_lock);
 		return -1;
+	}
 
 	ok = fwrite(UI_MAGIC, 1, UI_MAGIC_LEN, f) == UI_MAGIC_LEN;
+	if (ok)
+		ok = fprintf(f, "since %lld\n", (long long)snapsince) > 0;
 	for (i = 0; ok && i < UI_NBUCKETS; i++)
 	{
 		if (snap[i].start == 0)
@@ -227,30 +283,51 @@ int uiapi_ring_save(const char *path)
 	if (ok)
 		ok = rename(tmpname, path) == 0;
 	if (!ok)
-	{
 		unlink(tmpname);
-		return -1;
+	rc = ok ? 0 : -1;
+	pthread_mutex_unlock(&save_lock);
+	return rc;
+}
+
+int uiapi_ring_save(const char *path)
+{
+	return uiapi_ring_save_at(path, time(NULL));
+}
+
+void uiapi_init_at(const char *bpqdir, time_t now)
+{
+	snprintf(save_path, sizeof(save_path), "%s/uiapi-counters.dat",
+		(bpqdir && *bpqdir) ? bpqdir : ".");
+	if (uiapi_ring_load(save_path, now) < 0 || since == 0)
+	{
+		/* no usable history: counting begins now */
+		pthread_mutex_lock(&ring_lock);
+		since = now;
+		pthread_mutex_unlock(&ring_lock);
 	}
-	return 0;
+	last_closed = bucket_start(now);
 }
 
 void uiapi_init(const char *bpqdir)
 {
-	time_t now = time(NULL);
-
-	snprintf(save_path, sizeof(save_path), "%s/uiapi-counters.dat",
-		(bpqdir && *bpqdir) ? bpqdir : ".");
-	uiapi_ring_load(save_path, now);
-	last_closed = bucket_start(now);
+	uiapi_init_at(bpqdir, time(NULL));
 }
 
 void uiapi_tick(time_t now)
 {
 	time_t cur = bucket_start(now);
 
-	if (save_path[0] == 0 || cur == last_closed)
+	if (save_path[0] == 0)
 		return;
-	/* a bucket just closed */
+	if (cur == last_closed)
+		return;
+	/* a bucket just closed (or the clock moved) */
 	last_closed = cur;
-	uiapi_ring_save(save_path);
+	uiapi_ring_save_at(save_path, now);
+}
+
+void uiapi_shutdown(void)
+{
+	if (save_path[0])
+		uiapi_ring_save_at(save_path, time(NULL));
 }

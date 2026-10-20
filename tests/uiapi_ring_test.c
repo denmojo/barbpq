@@ -124,22 +124,22 @@ static void test_corrupt_file_starts_empty(void)
 	zero_totals(T0);
 
 	/* good magic, hostile lines */
-	write_file("BPQUIC1\n100 1 2\n", 16);
+	write_file("BPQUIC2\nsince 0\n100 1 2\n", 26);
 	assert(uiapi_ring_load(path, T0) == -1);
 	zero_totals(T0);
 	{
 		char b[128];
-		snprintf(b, sizeof b, "BPQUIC1\n%ld -5 0 0\n", (long)T0);
+		snprintf(b, sizeof b, "BPQUIC2\nsince 0\n%ld -5 0 0\n", (long)T0);
 		write_file(b, strlen(b));
 		assert(uiapi_ring_load(path, T0 + 300) == -1);
 		zero_totals(T0 + 300);
-		snprintf(b, sizeof b, "BPQUIC1\n%ld 1 0 0 junk\n", (long)T0);
+		snprintf(b, sizeof b, "BPQUIC2\nsince 0\n%ld 1 0 0 junk\n", (long)T0);
 		write_file(b, strlen(b));
 		assert(uiapi_ring_load(path, T0 + 300) == -1);
-		snprintf(b, sizeof b, "BPQUIC1\n%ld 1 0 0\n%ld 1 0 0\n", (long)T0, (long)T0);
+		snprintf(b, sizeof b, "BPQUIC2\nsince 0\n%ld 1 0 0\n%ld 1 0 0\n", (long)T0, (long)T0);
 		write_file(b, strlen(b));
 		assert(uiapi_ring_load(path, T0 + 300) == -1);
-		snprintf(b, sizeof b, "BPQUIC1\n%ld 1 0 0\n", (long)T0 + 7);
+		snprintf(b, sizeof b, "BPQUIC2\nsince 0\n%ld 1 0 0\n", (long)T0 + 7);
 		write_file(b, strlen(b));
 		assert(uiapi_ring_load(path, T0 + 300) == -1);
 	}
@@ -153,11 +153,16 @@ static void test_truncated_file_starts_empty(void)
 
 	reset();
 	snprintf(path, sizeof path, "%s/trunc.dat", dir);
-	snprintf(b, sizeof b, "BPQUIC1\n%ld 4 0 0\n%ld 3 0", (long)T0, (long)T0 + 300);
+	snprintf(b, sizeof b, "BPQUIC2\nsince 0\n%ld 4 0 0\n%ld 3 0", (long)T0, (long)T0 + 300);
 	write_file(b, strlen(b));
 	assert(uiapi_ring_load(path, T0 + 600) == -1);
 	zero_totals(T0 + 600);
 	write_file("BPQU", 4);
+	write_file("BPQUIC2\n", 8);
+	assert(uiapi_ring_load(path, T0 + 600) == -1);
+	write_file("BPQUIC2\nsince 0\n", 16);
+	assert(uiapi_ring_load(path, T0 + 600) == 0);
+	write_file("BPQUIC1\nsince 0\n", 16);
 	assert(uiapi_ring_load(path, T0 + 600) == -1);
 	zero_totals(T0 + 600);
 	write_file("", 0);
@@ -172,12 +177,12 @@ static void test_future_stamped_bucket_rejected(void)
 
 	reset();
 	snprintf(path, sizeof path, "%s/future.dat", dir);
-	snprintf(b, sizeof b, "BPQUIC1\n%ld 4 0 0\n%ld 1 0 0\n", (long)T0, (long)T0 + 900);
+	snprintf(b, sizeof b, "BPQUIC2\nsince 0\n%ld 4 0 0\n%ld 1 0 0\n", (long)T0, (long)T0 + 900);
 	write_file(b, strlen(b));
 	assert(uiapi_ring_load(path, T0 + 300) == -1);
 	zero_totals(T0 + 300);
 	/* one bucket ahead of now is tolerated (clock skew) */
-	snprintf(b, sizeof b, "BPQUIC1\n%ld 4 0 0\n", (long)T0 + 300);
+	snprintf(b, sizeof b, "BPQUIC2\nsince 0\n%ld 4 0 0\n", (long)T0 + 300);
 	write_file(b, strlen(b));
 	assert(uiapi_ring_load(path, T0 + 300) == 1);
 	unlink(path);
@@ -208,8 +213,114 @@ static void test_save_is_atomic(void)
 	assert(f);
 	assert(fread(magic, 1, 8, f) == 8);
 	fclose(f);
-	assert(strcmp(magic, "BPQUIC1\n") == 0);
+	assert(strcmp(magic, "BPQUIC2\n") == 0);
 	unlink(path);
+	passed++;
+}
+
+static void test_since_fresh_start(void)
+{
+	long t[UI_NCOUNTERS];
+	time_t ws;
+	int full;
+
+	reset();
+	uiapi_init_at(dir, T0);		/* no file: counting begins now */
+	uiapi_ring_totals(T0 + 600, t, &ws, &full);
+	assert(t[UI_SESSIONS] == 0 && ws == T0 && full == 0);
+	uiapi_count_at(UI_SESSIONS, T0 + 3000);
+	uiapi_ring_totals(T0 + 3100, t, &ws, &full);
+	assert(ws == T0 && t[UI_SESSIONS] == 1);
+	passed++;
+}
+
+static void test_since_sparse_traffic_stays_full(void)
+{
+	long t[UI_NCOUNTERS];
+	time_t ws;
+	int full;
+
+	reset();
+	uiapi_init_at(dir, T0);
+	uiapi_count_at(UI_SESSIONS, T0 + 100);
+	/* a quiet day and a half: the only event aged out, window is still full */
+	uiapi_ring_totals(T0 + 129600, t, &ws, &full);
+	assert(t[UI_SESSIONS] == 0);
+	assert(full == 1);
+	assert(ws == T0 + 129600 - 86400);
+	passed++;
+}
+
+static void test_since_survives_reload(void)
+{
+	long t[UI_NCOUNTERS];
+	time_t ws;
+	int full;
+	char file[192];
+
+	reset();
+	uiapi_init_at(dir, T0);
+	uiapi_count_at(UI_FRAMES, T0 + 10);
+	snprintf(file, sizeof file, "%s/uiapi-counters.dat", dir);
+	assert(uiapi_ring_save(file) == 0);
+	uiapi_init_at(dir, T0 + 7200);	/* restart two hours later */
+	uiapi_ring_totals(T0 + 7200, t, &ws, &full);
+	assert(ws == T0 && t[UI_FRAMES] == 1 && full == 0);
+	uiapi_init_at(dir, T0 + 90000);
+	uiapi_ring_totals(T0 + 90000, t, &ws, &full);
+	assert(full == 1 && ws == T0 + 90000 - 86400);
+	/* a since stamped in the future rejects the file */
+	{
+		char b[128];
+		snprintf(b, sizeof b, "BPQUIC2\nsince %ld\n", (long)T0 + 1000);
+		write_file(b, strlen(b));
+		snprintf(path, sizeof path, "%s/uiapi-counters.dat", dir);
+		write_file(b, strlen(b));
+		assert(uiapi_ring_load(path, T0) == -1);
+	}
+	unlink(file);
+	passed++;
+}
+
+static void test_clock_jump_back_stays_loadable(void)
+{
+	long t[UI_NCOUNTERS];
+	time_t ws;
+	int full;
+	time_t later = T0 + 7200, now2 = T0;
+
+	reset();
+	uiapi_init_at(dir, T0 - 3600);
+	uiapi_count_at(UI_SESSIONS, later);	/* stamped ahead of the clock after the jump */
+	uiapi_count_at(UI_SESSIONS, now2);
+	snprintf(path, sizeof path, "%s/jump.dat", dir);
+	assert(uiapi_ring_save_at(path, now2) == 0);
+	assert(uiapi_ring_load(path, now2) == 1);
+	uiapi_ring_totals(now2, t, &ws, &full);
+	assert(t[UI_SESSIONS] == 1);
+	unlink(path);
+	passed++;
+}
+
+static void test_shutdown_saves(void)
+{
+	char file[192];
+
+	reset();
+	uiapi_init_at(dir, T0);
+	uiapi_count_at(UI_MESSAGES, T0);
+	uiapi_shutdown();
+	snprintf(file, sizeof file, "%s/uiapi-counters.dat", dir);
+	assert(access(file, F_OK) == 0);
+	{
+		long t[UI_NCOUNTERS];
+		time_t ws;
+		int full;
+		assert(uiapi_ring_load(file, T0 + 60) == 1);
+		uiapi_ring_totals(T0 + 60, t, &ws, &full);
+		assert(t[UI_MESSAGES] == 1);
+	}
+	unlink(file);
 	passed++;
 }
 
@@ -225,6 +336,11 @@ int main(void)
 	test_truncated_file_starts_empty();
 	test_future_stamped_bucket_rejected();
 	test_save_is_atomic();
+	test_since_fresh_start();
+	test_since_sparse_traffic_stays_full();
+	test_since_survives_reload();
+	test_clock_jump_back_stays_loadable();
+	test_shutdown_saves();
 
 	rmdir(dir);
 	printf("uiapi ring: %d passed\n", passed);
