@@ -2,7 +2,7 @@
 // re-posted to the same handlers with the same fields; nothing here shows or links an old page.
 import { parseForm, submitForm, type FormSpec } from '../../data/forms';
 import { getText, ParseError } from '../../data/http';
-import { assertAuthorized, getProtected, mailKey, withSysop } from '../../data/session';
+import { assertAuthorized, getProtected, mailKey, mailKeyOf, withSysop } from '../../data/session';
 import { exclusive, parseFwdDetails, parseFwdList, postMail, type FwdRecord, type MailJob } from '../model';
 import { sendOnce, type Outcome } from './sendonce';
 import type { PipePage } from './fieldmaps';
@@ -86,8 +86,9 @@ export function recordCall(kind: PipePage, html: string): string | null {
 export function listRecords(kind: PipePage): Promise<string[]> {
   return withSysop(async () => {
     // The WP page asks for its list with GET; the others POST.
+    const wpUrl = kind === 'wp' ? `/Mail/${RECORD.wp.list}?${await mailKey()}` : '';
     const text = kind === 'wp'
-      ? assertAuthorized(await getText(`/Mail/${RECORD.wp.list}?${await mailKey()}`))
+      ? assertAuthorized(await getText(wpUrl), mailKeyOf(wpUrl))
       : await postMail(RECORD[kind].list, '');
     return parseFwdList(text);
   });

@@ -3,9 +3,9 @@
 // Msg->status, BBSHTMLConfig.c:2377), FWDSave (SaveFwdDetails reads USER->ForwardingInfo, :1936)
 // and UserSave (ProcessUserUpdate) on it crash the node.
 import { bytesOf, fixture } from '../../../data/__tests__/helpers';
-import { getProtected, signOut, sysop } from '../../../data/session';
+import { currentMailKey, getProtected, signOut, sysop } from '../../../data/session';
 import { fetchMailStatus, MailJobAbortedError } from '../../model';
-import { deleteRecord, saveRecord, startForwarding } from '../maildata';
+import { deleteRecord, listRecords, saveRecord, startForwarding } from '../maildata';
 import { parseMessageDetail, setStatus } from '../msgactions';
 import { KEY } from './sample';
 
@@ -117,4 +117,31 @@ test('after an abort, running the action again starts from the pick on the fresh
   await expect(setStatus(opened, 'N')).rejects.toBeInstanceOf(MailJobAbortedError);
   await expect(setStatus(opened, 'N')).resolves.toMatchObject({ value: { status: 'N' } });
   expect(n.calls.filter((c) => c.key === C).map((c) => c.path)).toEqual(['/Mail/MsgDetails', '/Mail/MsgSave']);
+});
+
+// N2: a late lost reply on an old key must not clear a newer cached key.
+test('the WP list GET: a late lost reply on an old key leaves the newer key cached', async () => {
+  let headers = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let listed = false;
+  let atList!: () => void;
+  const listing = new Promise<void>((r) => { atList = r; });
+  const lostKeys = new Set<string>();
+  vi.stubGlobal('fetch', async (url: string) => {
+    const [path, key = ''] = url.split('?');
+    if (path === '/Mail/Header') { headers += 1; return new Response(bytesOf(header(headers === 1 ? B : C)), { status: 200 }); }
+    if (lostKeys.has(key)) return new Response(bytesOf(LOST), { status: 200 });
+    if (path === '/Mail/WPInfo.txt' && key === B && !listed) { listed = true; atList(); await gate; return new Response(bytesOf(LOST), { status: 200 }); }
+    if (path === '/Mail/WPInfo.txt') return new Response('N0CALL|N1TEST|', { status: 200 });
+    return new Response(bytesOf(fixture('mail-status.html')), { status: 200 });
+  });
+  const list = listRecords('wp');
+  await listing;
+  lostKeys.add(B);
+  await fetchMailStatus();                // finds B lost, clears it, gets C
+  release();
+  await expect(list).resolves.toEqual(['N0CALL', 'N1TEST']);
+  expect(headers).toBe(2);
+  expect(currentMailKey()).toBe(C);
 });

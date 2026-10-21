@@ -1,6 +1,6 @@
 import { parseForm, submitForm, encodeCfgSave, cfgSaveTooLarge, formPairs, encodePairs, saveConfig, CfgTooLargeError, extractConfigText, SaveFailedError } from '../forms';
 import { decodeLatin1, encodeLatin1Form, NonLatin1Error, latin1Bytes } from '../http';
-import { sysop } from '../session';
+import { currentMailKey, mailKey, signOut, sysop } from '../session';
 import { parseMailKey } from '../pages';
 import { fixture, stubFetch } from './helpers';
 
@@ -239,4 +239,16 @@ test('a bare name shared by radios and other fields addresses only the radios, w
   expect(formPairs(spec, { 'Type#0': 'Z', Type: 'P' })).toEqual([['Type', 'Z'], ['Type', 'P']]);
   // with no radio of that name, the bare name is the first field
   expect(formPairs(parseForm('<form action=/x><input name=a value=1><input name=a value=2></form>'), { a: '9' })).toEqual([['a', '9'], ['a', '2']]);
+});
+
+test('submitForm: a lost-session reply on the form\'s own old key leaves a newer cached key alone', async () => {
+  signOut();
+  stubFetch({ '/Mail/Header': () => fixture('mail-header.html') });
+  const current = await mailKey();
+  vi.unstubAllGlobals();
+  const spec = parseForm(fixture('mail-conf.html'), 0, KEY_CONF);
+  const old = '/Mail/Config?M0000000000OLD';
+  stubFetch({ [old]: () => fixture('mail-lost.html') });
+  await expect(submitForm({ ...spec, action: old, method: 'post' }, {})).rejects.toThrow(/dropped this mail session/);
+  expect(currentMailKey()).toBe(current);
 });

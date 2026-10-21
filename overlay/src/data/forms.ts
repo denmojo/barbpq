@@ -1,6 +1,6 @@
 // Parse the node's old HTML forms and post them back. The user never sees these pages.
 import { encodeLatin1Form, getText, latin1Bytes, ParseError, postBody } from './http';
-import { assertAuthorized, getProtected, withSysop } from './session';
+import { assertAuthorized, getProtected, mailKeyOf, withSysop } from './session';
 
 export interface FieldOption { value: string; label: string; selected: boolean }
 export interface FormField {
@@ -133,7 +133,7 @@ export async function submitForm(spec: FormSpec, values: Record<string, string>)
     spec.method === 'get'
       ? await getText(`${spec.action}${spec.action.includes('?') ? '&' : '?'}${body}`)
       : await postBody(spec.action, latin1Bytes(body));
-  return assertAuthorized(reply);
+  return assertAuthorized(reply, mailKeyOf(spec.action));
 }
 
 /**
