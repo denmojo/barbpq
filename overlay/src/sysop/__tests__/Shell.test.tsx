@@ -123,6 +123,26 @@ test('recent changes lists the first 10 of the single getEvents(200) poll, newes
   expect(region).toHaveTextContent('Node restarted');
 });
 
+test('recent changes: a forward run with no CMS result is neutral and says the result is unknown, with the reason', async () => {
+  vi.mocked(ui.getEvents).mockResolvedValue([
+    { t: '2026-10-20T16:58:00Z', kind: 'forward', detail: { route: 'RMS via port 1', cmsReachable: null } },
+    { t: '2026-10-20T16:50:00Z', kind: 'forward', detail: { route: 'RMS via port 1', cmsReachable: true } },
+  ]);
+  render(<SysopLayout />);
+  const region = await screen.findByRole('region', { name: 'Recent changes' });
+  await waitFor(() => expect(region.querySelectorAll('li')).toHaveLength(2));
+  const items = Array.from(region.querySelectorAll('li'));
+  const unknown = items[0] as HTMLElement;
+  const reached = items[1] as HTMLElement;
+  expect(unknown).toHaveTextContent('Forwarded via RMS via port 1, CMS result Unknown');
+  expect(unknown.querySelector('.ic')).toHaveClass('idle');
+  expect(unknown.querySelector('.ic')).not.toHaveClass('ok');
+  expect(within(unknown).getByText('Unknown')).toHaveAttribute('title',
+    'This run logged no CMS result within the node\'s wait, so whether it fell back is not known');
+  expect(reached).toHaveTextContent(/^\d\d:\d\dForwarded via RMS via port 1$/);
+  expect(reached.querySelector('.ic')).toHaveClass('ok');
+});
+
 test('mail card shows queued for RMS, held and messages', async () => {
   render(<SysopLayout />);
   const region = await screen.findByRole('region', { name: 'Mail' });

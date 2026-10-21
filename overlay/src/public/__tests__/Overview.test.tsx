@@ -5,7 +5,7 @@ import { Overview } from '../Overview';
 import * as ui from '../../data/uiapi';
 import * as api from '../../data/api';
 import { expectNoOldPageLinks, prime } from './prime';
-import { NOW, countsPartial } from './sample';
+import { NOW, countsPartial, station } from './sample';
 
 vi.mock('../../data/api', async () => (await import('./mocks')).MOCK_API());
 vi.mock('../../data/uiapi', async () => (await import('./mocks')).MOCK_UI());
@@ -41,8 +41,28 @@ test('hero does not claim on the air when no radio port is linked', async () => 
   ]);
   render(<Overview />);
   const hero = await screen.findByRole('region', { name: 'Node status' });
-  expect(await within(hero).findByText('Gateway off the air')).toBeInTheDocument();
+  expect(await within(hero).findByText('Gateway down: radios not connected')).toBeInTheDocument();
   expect(within(hero).queryByText('Gateway on the air')).toBeNull();
+  // the down ports' own details, in port order, then the frequency line
+  expect(within(hero).getByText('VARA modem not connected · KISS TCP not connected')).toBeInTheDocument();
+  expect(within(hero).getByText('Winlink RMS on 145.630 MHz · VARA FM and 1200 baud packet')).toBeInTheDocument();
+});
+
+test('hero on a node with no radio ports reads Node down when every port is down', async () => {
+  vi.mocked(ui.getStation).mockResolvedValue({
+    ...station, ports: station.ports.map((p) => ({ ...p, freqHz: null })),
+  });
+  vi.mocked(ui.getLinkStates).mockResolvedValue([
+    { number: 1, state: 'down', detail: 'Telnet not listening' },
+    { number: 3, state: 'down', detail: 'VARA modem not connected' },
+    { number: 2, state: 'down', detail: 'VARA modem not connected' },
+  ]);
+  render(<Overview />);
+  const hero = await screen.findByRole('region', { name: 'Node status' });
+  expect(await within(hero).findByText('Node down: radios not connected')).toBeInTheDocument();
+  // no frequency line on a node without radio ports; a detail two ports share is said once
+  expect(Array.from(hero.querySelectorAll('.hero-text p')).map((p) => p.textContent))
+    .toEqual(['Telnet not listening · VARA modem not connected']);
 });
 
 test('port cards show addresses, TXTAIL and the telnet port from getStation', async () => {

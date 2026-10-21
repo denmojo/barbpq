@@ -37,7 +37,11 @@ export function linkPill(state: LinkState | undefined): Pill {
   return { tone: 'idle', label: 'Unknown', title: state.detail };
 }
 
-export interface Hero { tone: Tone; title: string; sub: string | null; reason?: string }
+export interface Hero {
+  tone: Tone; title: string; sub: string | null; reason?: string;
+  /** A second line under sub: the frequency line when sub carries the down ports' details. */
+  sub2?: string;
+}
 
 /** The status line at the top of Overview. It says "on the air" only when a radio port is linked. */
 export function heroStatus(
@@ -62,9 +66,16 @@ export function heroStatus(
       ? { tone: 'idle', title: `${what} status unknown`, sub, reason: errors.links.message }
       : { tone: 'idle', title: `Checking the ${what.toLowerCase()}`, sub };
   }
-  const states = (rf.length ? rf : station.ports).map((p) => links.find((l) => l.number === p.number)?.state ?? 'unknown');
+  const watched = (rf.length ? rf : station.ports).map((p) => links.find((l) => l.number === p.number));
+  const states = watched.map((l) => l?.state ?? 'unknown');
   if (states.includes('linked')) return { tone: 'ok', title: `${what} on the air`, sub };
-  if (states.length && states.every((s) => s === 'down')) return { tone: 'down', title: `${what} off the air`, sub };
+  if (states.length && states.every((s) => s === 'down')) {
+    // Each down port's own words, in port order, said once each; the frequency line moves under them.
+    const details = [...new Set(watched.map((l) => l?.detail.trim() ?? '').filter(Boolean))].join(' · ');
+    const title = `${what} down: radios not connected`;
+    if (!details) return { tone: 'down', title, sub };
+    return { tone: 'down', title, sub: details, ...(sub ? { sub2: sub } : {}) };
+  }
   return { tone: 'idle', title: `${what} status unknown`, sub };
 }
 

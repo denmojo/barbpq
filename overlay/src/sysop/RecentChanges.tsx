@@ -6,10 +6,13 @@ import { EmptyState } from '../ui/EmptyState';
 import { ErrorNote } from '../ui/ErrorNote';
 import { Skel } from '../ui/Skel';
 import { formatStamp } from '../ui/format';
+import { Unknown } from '../ui/Unknown';
 import { eventTime } from './model';
 
+const FWD_UNKNOWN = 'This run logged no CMS result within the node\'s wait, so whether it fell back is not known';
+
 /** Dot tone and words for one event. The dot repeats the words; it never carries meaning alone. */
-export function describeEvent(e: UiEvent): { tone: 'ok' | 'warn' | 'info'; text: ComponentChildren } {
+export function describeEvent(e: UiEvent): { tone: 'ok' | 'warn' | 'info' | 'idle'; text: ComponentChildren } {
   switch (e.kind) {
     case 'restart':
       return { tone: 'warn', text: 'Node restarted' };
@@ -22,7 +25,12 @@ export function describeEvent(e: UiEvent): { tone: 'ok' | 'warn' | 'info'; text:
       const cms = e.detail.cmsReachable;
       const where = route ? <> via <code>{route}</code></> : null;
       if (cms === false) return { tone: 'warn', text: <>Forwarded{where} while CMS was unreachable</> };
-      return { tone: 'ok', text: <>Forwarded{where}</> };
+      if (cms === true) return { tone: 'ok', text: <>Forwarded{where}</> };
+      // null (or left out): the node logged no CMS result for this run, as Health's Store and forward card words it
+      return {
+        tone: 'idle',
+        text: <>Forwarded{where}, CMS result <Unknown reason={FWD_UNKNOWN} /></>,
+      };
     }
     default:
       return { tone: 'info', text: String((e as { kind: string }).kind) };

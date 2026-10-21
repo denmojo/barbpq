@@ -82,7 +82,7 @@
 .feed li:first-child { border-top: 0; }
 .feed time { font: 12px var(--font-mono); color: var(--text-faint); white-space: nowrap; cursor: help; }
 .feed .ic { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); justify-self: center; }
-.feed .ic.ok { background: var(--ok); } .feed .ic.warn { background: var(--warn); }
+.feed .ic.ok { background: var(--ok); } .feed .ic.warn { background: var(--warn); } .feed .ic.idle { background: var(--text-faint); }
 .feed code { font: 12px var(--font-mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
 
 /* sign in */

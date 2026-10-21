@@ -49,6 +49,7 @@ function HeroCard({ station, links, cms }: { station: Poll<Station>; links: Poll
       <div class="hero-text">
         <h1 title={hero.reason}>{hero.title}</h1>
         {hero.sub && <p>{hero.sub}</p>}
+        {hero.sub2 && <p>{hero.sub2}</p>}
       </div>
       <div class="facts">
         <div class="fact">
