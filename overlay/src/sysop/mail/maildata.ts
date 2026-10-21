@@ -1,10 +1,11 @@
 // Reads and saves for the mail screens. The old mail pages are fetched as data and their forms
 // re-posted to the same handlers with the same fields; nothing here shows or links an old page.
 import { parseForm, submitForm, type FormSpec } from '../../data/forms';
-import { getJson, getText, HttpError, ParseError } from '../../data/http';
+import { getText, ParseError } from '../../data/http';
 import { assertAuthorized, getProtected, mailKey, withSysop } from '../../data/session';
 import { exclusive, parseFwdList, postMail } from '../model';
 import type { PipePage } from './fieldmaps';
+import { changedOnNode } from './mailform';
 
 /** Mail pages whose settings save as an ordinary form post, and the handler each posts to. */
 export type FormPage = 'Conf' | 'Wel' | 'HK' | 'FWD';
@@ -12,6 +13,21 @@ export type FormPage = 'Conf' | 'Wel' | 'HK' | 'FWD';
 const FORM_TITLE: Record<FormPage, string> = {
   Conf: 'Mail configuration', Wel: 'Welcome messages', HK: 'Housekeeping', FWD: 'Forwarding',
 };
+
+/** The form the draft was made on and the keys the sysop edited, for the lost-update check. */
+export interface SaveGuard { loaded: FormSpec; edited: string[] }
+
+/** The node's copy changed since the sysop opened it; posting would write the old values back. */
+export class ChangedOnNodeError extends Error {
+  constructor() {
+    super('Changed on the node since you opened it; reload to see it');
+    this.name = 'ChangedOnNodeError';
+  }
+}
+
+function checkGuard(guard: SaveGuard | undefined, fresh: FormSpec): void {
+  if (guard && changedOnNode(guard.loaded, fresh, guard.edited)) throw new ChangedOnNodeError();
+}
 
 async function readForm(page: FormPage): Promise<FormSpec> {
   const url = `/Mail/${page}?${await mailKey()}`;
@@ -32,9 +48,12 @@ const SUBMIT: Record<FormPage, [string, string]> = {
  * the current session key and an untouched password goes as the node has it now. The node
  * answers with the page itself; its form is the saved state.
  */
-export function saveFormPage(page: FormPage, values: Record<string, string>, button: [string, string] = SUBMIT[page]): Promise<FormSpec> {
+export function saveFormPage(
+  page: FormPage, values: Record<string, string>, guard?: SaveGuard, button: [string, string] = SUBMIT[page],
+): Promise<FormSpec> {
   return withSysop(async () => {
     const spec = await readForm(page);
+    checkGuard(guard, spec);
     const reply = await submitForm(spec, { ...values, [button[0]]: button[1] });
     try {
       const after = parseForm(reply, 0, spec.action);
@@ -74,6 +93,11 @@ export function listRecords(kind: PipePage): Promise<string[]> {
 }
 
 async function pick(kind: PipePage, call: string): Promise<FormSpec> {
+  // FwdDetails for a call that is not a forwarding partner crashes the node (SendFwdDetails
+  // reads a NULL ForwardingInfo), so check the partner list first, every time.
+  if (kind === 'fwd' && !parseFwdList(await postMail(RECORD.fwd.list, '')).some((p) => p.toUpperCase() === call.toUpperCase())) {
+    throw new ParseError('Forwarding partners', `partner ${call}`);
+  }
   const html = await postMail(RECORD[kind].details, call);
   const got = recordCall(kind, html);
   if (got === null) throw new ParseError(`${RECORD[kind].title} ${call}`, 'record');
@@ -93,9 +117,10 @@ const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
  * Save one record: pick it (the node saves to the session's current record), build the body
  * from the freshly read form, post it, and check the reply is that record.
  */
-export function saveRecord(kind: PipePage, call: string, body: (spec: FormSpec) => string): Promise<FormSpec> {
+export function saveRecord(kind: PipePage, call: string, body: (spec: FormSpec) => string, guard?: SaveGuard): Promise<FormSpec> {
   return withSysop(() => exclusive(async () => {
     const spec = await pick(kind, call);
+    checkGuard(guard, spec);
     const reply = await postMail(RECORD[kind].save, utf8(body(spec)));
     const got = recordCall(kind, reply);
     if (got === null || got.toUpperCase() !== call.toUpperCase()) {
@@ -118,65 +143,61 @@ export function deleteRecord(kind: 'user' | 'wp', call: string): Promise<void> {
   }));
 }
 
-// ---------- the message list (Mail API, GET only) ----------
+// ---------- the message list (the old Msgs page's data) ----------
 
 export interface MailMessage {
   id: number;
   bid: string;
-  /** Unix seconds the message was created. */
-  created: number;
   type: string;
+  /** N new, Y read, F forwarded, K killed, H held, D delivered, $ bulletin (MsgInfo.status). */
   status: string;
   to: string;
   from: string;
+  via: string;
   size: number;
   subject: string;
+  /** As the node prints it, e.g. "20-Oct 23:52Z". */
+  sent: string;
 }
 
-export interface MessageList {
-  msgs: MailMessage[];
-  /**
-   * The API answers each token as its sign-in allows. A token the node does not take for the
-   * sysop gets only the messages that user may read, so the list cannot give BBS-wide counts.
-   */
-  sysopScope: boolean;
-}
-
-interface ApiMsg { id: string; mid: string; rcvd: string; type: string; status: string; to: string; from: string; size: string; subject: string }
-
-/** The API escapes & < > " ' in subjects for XML. */
-const unxml = (s: string): string =>
-  s.replace(/&(lt|gt|quot|apos|amp);/g, (_m, e: string) => ({ lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' })[e] ?? _m);
-
-export function parseMessages(json: unknown): MailMessage[] {
-  const msgs = (json as { msgs?: unknown }).msgs;
-  if (!Array.isArray(msgs)) throw new ParseError('Mail API message list', 'msgs');
-  return (msgs as ApiMsg[]).map((m, i) => {
-    const id = Number(m.id);
-    if (!m || Number.isNaN(id) || typeof m.status !== 'string') throw new ParseError('Mail API message list', `message ${i + 1}`);
-    return {
-      id, bid: m.mid, created: Number(m.rcvd), type: m.type, status: m.status,
-      to: m.to, from: m.from, size: Number(m.size), subject: unxml(m.subject ?? ''),
-    };
+/** MsgInfo.txt: message numbers newest first, "4|3|2|1|", then stray closing tags. */
+export function parseMsgNumbers(text: string): number[] {
+  return parseFwdList(text).map((p) => {
+    const n = Number(p);
+    if (!Number.isInteger(n) || n <= 0) throw new ParseError('Message list', `message number "${p}"`);
+    return n;
   });
+}
+
+/** One MsgDetails reply: the "Message N" heading and the edit form's fields. */
+export function parseMsgDetails(html: string, n: number): MailMessage {
+  if (!new RegExp(`<h4>Message ${n}</h4>`).test(html)) throw new ParseError(`Message ${n}`, 'record');
+  const spec = parseForm(html);
+  const v = (name: string): string => {
+    const f = spec.fields.find((x) => x.name === name);
+    if (!f) throw new ParseError(`Message ${n}`, name);
+    return f.value;
+  };
+  return {
+    id: n, bid: v('BID'), type: v('Type'), status: v('Status'), to: v('To'), from: v('From'),
+    via: v('VIA'), size: Number(v('Size')), subject: v('Title'), sent: v('Sent'),
+  };
 }
 
 /**
- * Sign in to the Mail API with the mail session key (it issues the key back as the token),
- * read the list, and ask a sysop-only endpoint whether the token counts as sysop.
+ * Every message, as the old Msgs page reads them: the numbers from MsgInfo.txt (all filters
+ * empty), then one MsgDetails per number. MsgDetails sets the session's current message, so
+ * the reads run one at a time inside exclusive(). That is one request per message, so the
+ * screen reads only when opened and on Refresh.
  */
-export function fetchMessages(): Promise<MessageList> {
-  return withSysop(async () => {
-    const key = await mailKey();
-    await getJson(`/mail/api/v1/login?${key}`);
-    const msgs = parseMessages(await getJson(`/Mail/API/v1/msgs?${key}`));
-    let sysopScope = true;
-    try {
-      await getJson(`/Mail/API/v1/FwdQLen?${key}`);
-    } catch (e) {
-      if (!(e instanceof HttpError && e.status === 403)) throw e;
-      sysopScope = false;
+export function fetchMessages(onProgress?: (done: number, total: number) => void): Promise<MailMessage[]> {
+  return withSysop(() => exclusive(async () => {
+    const numbers = parseMsgNumbers(await postMail('MsgInfo.txt', '||||'));
+    const out: MailMessage[] = [];
+    for (const n of numbers) {
+      onProgress?.(out.length, numbers.length);
+      out.push(parseMsgDetails(await postMail('MsgDetails', String(n)), n));
     }
-    return { msgs, sysopScope };
-  });
+    return out;
+  }));
 }

@@ -28,3 +28,26 @@ export const fwdPage = (call: string): string =>
   fixture('mail-fwddetails-rms.html').replace('Forwarding Config for RMS', `Forwarding Config for ${call}`);
 
 export const SECRETS = [ISP_PASSWORD, USER_PASSWORD, CMS_HIDDEN];
+
+/** Staging's four messages, newest first: number, status, title. */
+export const MESSAGES: [number, string, string][] = [
+  [4, 'N', 'Housekeeping Results'],
+  [3, 'N', 'Message 2 Held - User has Hold Messages flag set'],
+  [2, 'H', 'uiapi test'],
+  [1, 'N', 'New User N0CALL'],
+];
+
+/** The node's MsgDetails reply for one message: the captured message 2 with its number, status and title changed. */
+export function msgPage(n: number, status: string, title: string): string {
+  return fixture('mail-msgdetails-2.html')
+    .replace('<h4>Message 2</h4>', `<h4>Message ${n}</h4>`)
+    .replace('<option selected value=H>H</option>', '<option  value=H>H</option>')
+    .replace(`<option  value=${status}>${status}</option>`, `<option selected value=${status}>${status}</option>`)
+    .replace('value="uiapi test"', `value="${title}"`)
+    .replace('value="2_AD6DM"', `value="${n}_AD6DM"`);
+}
+
+export const msgByBody = (body: string): string => {
+  const m = MESSAGES.find(([n]) => String(n) === body);
+  return m ? msgPage(...m) : '';
+};

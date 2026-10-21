@@ -10,7 +10,8 @@ import { expectNoOldPageLinks, prime } from '../../../public/__tests__/prime';
 import { NOW } from '../../../public/__tests__/sample';
 import { paletteItems } from '../../palette';
 import { resetMail } from '../drafts';
-import { CMS_HIDDEN, confPage, fwdPage, ISP_PASSWORD, KEY, SECRETS, userPage, USER_PASSWORD } from './sample';
+import { CMS_HIDDEN, confPage, fwdPage, ISP_PASSWORD, KEY, msgByBody, msgPage, SECRETS, userPage, USER_PASSWORD } from './sample';
+import { setPicked } from '../drafts';
 
 vi.mock('../../../data/api', async () => (await import('../../../public/__tests__/mocks')).MOCK_API());
 vi.mock('../../../data/uiapi', async () => (await import('../../../public/__tests__/mocks')).MOCK_UI());
@@ -19,7 +20,7 @@ vi.mock('../../../data/pages', async () => ({
   fetchRoutes: vi.fn(), fetchStats: vi.fn(),
 }));
 
-type Hit = string | ((body: string) => string) | { status: number };
+type Hit = string | ((body: string) => string | Promise<string>) | { status: number };
 interface Call { url: string; method: string; body: string }
 
 /** The node's pages and API for the shell and the mail screens; `over` replaces or adds routes. */
@@ -43,9 +44,8 @@ function node(over: Record<string, Hit> = {}): Call[] {
     [`/Mail/WPInfo.txt?${KEY}`]: fixture('mail-wpinfo.txt'),
     [`/Mail/WPDetails?${KEY}`]: fixture('mail-wpdetails-n0call.html'),
     [`/Mail/WPSave?${KEY}`]: fixture('mail-wpdetails-n0call.html'),
-    [`/mail/api/v1/login?${KEY}`]: fixture('mail-api-login.json'),
-    [`/Mail/API/v1/msgs?${KEY}`]: fixture('mail-api-msgs.json'),
-    [`/Mail/API/v1/FwdQLen?${KEY}`]: '{"forwardqueuelength":[{"call": "RMS","queueLength": "0"}]}',
+    [`/Mail/MsgInfo.txt?${KEY}`]: fixture('mail-msginfo.txt'),
+    [`/Mail/MsgDetails?${KEY}`]: msgByBody,
     ...over,
   };
   const calls: Call[] = [];
@@ -56,7 +56,7 @@ function node(over: Record<string, Hit> = {}): Call[] {
     const hit = routes[url];
     if (hit === undefined) return new Response('nope', { status: 404 });
     if (typeof hit === 'object') return new Response('', { status: hit.status });
-    return new Response(bytesOf(typeof hit === 'function' ? hit(body) : hit), { status: 200 });
+    return new Response(bytesOf(typeof hit === 'function' ? await hit(body) : hit), { status: 200 });
   });
   return calls;
 }
@@ -111,8 +111,17 @@ const saved = () => screen.findByText('Saved');
 
 // ---------- Messages ----------
 
-test('Messages lists the API messages with held, sent and bounced from the list status fields', async () => {
-  node();
+/** A promise the test resolves by hand. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+const details = (calls: Call[]) => posts(calls, 'MsgDetails').map((c) => c.body);
+
+test('Messages reads MsgInfo.txt then each MsgDetails in turn; held, sent and bounced come from the statuses', async () => {
+  const calls = node();
   const { container } = open('messages');
   const list = await screen.findByRole('table', { name: 'Messages' });
   const rows = within(list).getAllByRole('row').slice(1);
@@ -120,6 +129,9 @@ test('Messages lists the API messages with held, sent and bounced from the list 
   expect(rows[0]).toHaveTextContent('Housekeeping Results');
   expect(rows[2]).toHaveTextContent('uiapi test');
   expect(rows[2]).toHaveTextContent('Held');
+  expect(rows[2]).toHaveTextContent('N0CALL');
+  expect(posts(calls, 'MsgInfo.txt').map((c) => c.body)).toEqual(['||||']);
+  expect(details(calls)).toEqual(['4', '3', '2', '1']);
   const tiles = screen.getByRole('region', { name: 'Message counts' });
   expect(within(tiles).getByText('Held').nextElementSibling).toHaveTextContent('1');
   expect(within(tiles).getByText('Sent').nextElementSibling).toHaveTextContent('0');
@@ -130,21 +142,49 @@ test('Messages lists the API messages with held, sent and bounced from the list 
 });
 
 test('Messages counts forwarded (F) messages as sent', async () => {
-  const msgs = fixture('mail-api-msgs.json').replace('"status": "N",\r\n"to": "SYSOP",\r\n"from": "SYSTEM",\r\n"size": "168"', '"status": "F",\r\n"to": "SYSOP",\r\n"from": "SYSTEM",\r\n"size": "168"');
-  node({ [`/Mail/API/v1/msgs?${KEY}`]: msgs });
+  node({ [`/Mail/MsgDetails?${KEY}`]: (b) => (b === '4' ? msgPage(4, 'F', 'Out') : msgByBody(b)) });
   open('messages');
   const tiles = await screen.findByRole('region', { name: 'Message counts' });
   await waitFor(() => expect(within(tiles).getByText('Sent').nextElementSibling).toHaveTextContent('1'));
 });
 
-test('a session the mail API does not treat as sysop shows its list, and every count is Unknown', async () => {
-  node({ [`/Mail/API/v1/FwdQLen?${KEY}`]: { status: 403 }, [`/Mail/API/v1/msgs?${KEY}`]: fixture('mail-api-msgs-bulls.json') });
+test('Messages loads one detail at a time with a progress line, and never polls; Refresh reads again', async () => {
+  const gates = new Map<string, ReturnType<typeof deferred<string>>>();
+  let hold = true;
+  const calls = node({
+    [`/Mail/MsgDetails?${KEY}`]: (b) => {
+      if (!hold) return msgByBody(b);
+      const g = deferred<string>();
+      gates.set(b, g);
+      return g.promise;
+    },
+  });
+  open('messages');
+  await waitFor(() => expect(details(calls)).toEqual(['4']));
+  expect(screen.getByText('Reading message 1 of 4')).toBeInTheDocument();
+  gates.get('4')!.resolve(msgByBody('4'));
+  await waitFor(() => expect(details(calls)).toEqual(['4', '3']));
+  expect(screen.getByText('Reading message 2 of 4')).toBeInTheDocument();
+  for (const n of ['3', '2']) {
+    gates.get(n)!.resolve(msgByBody(n));
+    await waitFor(() => expect(details(calls)).toHaveLength(Number(5 - Number(n) + 1)));
+  }
+  gates.get('1')!.resolve(msgByBody('1'));
+  await screen.findByRole('table', { name: 'Messages' });
+  expect(posts(calls, 'MsgInfo.txt')).toHaveLength(1);
+  hold = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  await waitFor(() => expect(posts(calls, 'MsgInfo.txt')).toHaveLength(2));
+  await waitFor(() => expect(details(calls)).toHaveLength(8));
+});
+
+test('a MsgDetails reply that is not the message makes every count Unknown with the reason', async () => {
+  node({ [`/Mail/MsgDetails?${KEY}`]: (b) => (b === '2' ? '' : msgByBody(b)) });
   open('messages');
   const tiles = await screen.findByRole('region', { name: 'Message counts' });
   await waitFor(() => expect(within(tiles).getByText('Held').nextElementSibling).toHaveTextContent('Unknown'));
   expect(within(tiles).getByText('Sent').nextElementSibling).toHaveTextContent('Unknown');
-  expect(tiles.querySelector('.unknown')?.getAttribute('title')).toMatch(/not as sysop/i);
-  expect(screen.getByRole('status')).toHaveTextContent(/only the messages a non-sysop/i);
+  expect(tiles.querySelector('.unknown')?.getAttribute('title')).toMatch(/message 2/i);
 });
 
 // ---------- Forwarding ----------
@@ -161,14 +201,59 @@ test('Forwarding lists the partners; the RMS interval saves through FwdDetails t
   fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
   await saved();
   const save = calls.findIndex((c) => c.url === `/Mail/FWDSave?${KEY}`);
+  expect(save).toBeGreaterThan(0);
+  // the last mail request before the save picked RMS
   const select = lastIndex(calls.slice(0, save), (c) => c.url.startsWith('/Mail/'));
-  expect(calls[select]).toMatchObject({ url: `/Mail/FwdDetails?${KEY}`, body: 'RMS' });
   expect(select).toBeGreaterThanOrEqual(0);
-  expect(save).toBeGreaterThan(select);
+  expect(calls[select]).toMatchObject({ url: `/Mail/FwdDetails?${KEY}`, body: 'RMS' });
   expect(calls[save]?.body).toBe(
     'RMS\n|||ATTACH 1\nNOFALLBACK\nC CMS\nELSE\nC 2 W6SAR-10\n||||true|1700|false|0|true|true|10000|false|true|false|true|false|120|',
   );
   expectNoOldPageLinks(container);
+});
+
+test.each([['a call no longer on the list', 'GONE'], ['a BBS user that is not a partner', 'N0CALL']])(
+  'Forwarding never asks FwdDetails for %s (the node crashes on a non-partner)', async (_what, call) => {
+    setPicked('forwarding', call);
+    const calls = node();
+    open('forwarding');
+    await screen.findByRole('region', { name: 'Forwarding for AD6DM' });
+    await waitFor(() => expect(posts(calls, 'FwdDetails').some((c) => c.body === 'AD6DM')).toBe(true));
+    expect(posts(calls, 'FwdDetails').map((c) => c.body)).not.toContain(call);
+  });
+
+test('Forwarding makes no FwdDetails request until the partner list has loaded', async () => {
+  setPicked('forwarding', 'RMS');
+  const list = deferred<string>();
+  const calls = node({ [`/Mail/FwdList.txt?${KEY}`]: () => list.promise });
+  open('forwarding');
+  await waitFor(() => expect(posts(calls, 'FwdList.txt').length).toBeGreaterThan(0));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(posts(calls, 'FwdDetails')).toEqual([]);
+  list.resolve(fixture('mail-fwdlist.txt'));
+  await screen.findByRole('region', { name: 'Forwarding for RMS' });
+});
+
+test('the RMS forwarding palette entry opens the first partner when RMS is not one', async () => {
+  const calls = node({ [`/Mail/FwdList.txt?${KEY}`]: 'AD6DM|' });
+  open('health');
+  paletteItems().find((i) => i.label === 'RMS forwarding')!.action!();
+  route.value = 'forwarding';
+  await screen.findByRole('region', { name: 'Forwarding for AD6DM' });
+  expect(posts(calls, 'FwdDetails').map((c) => c.body)).not.toContain('RMS');
+});
+
+test('BBS users and White pages ignore a stale pick and open the first record', async () => {
+  setPicked('bbsusers', 'GONE');
+  setPicked('wp', 'GONE');
+  const calls = node();
+  const { unmount } = open('bbsusers');
+  await screen.findByRole('region', { name: 'User AD6DM' });
+  unmount();
+  open('mailsettings');
+  fireEvent.click(await screen.findByRole('tab', { name: 'White pages' }));
+  await screen.findByRole('region', { name: 'White pages for N0CALL' });
+  expect([...posts(calls, 'UserDetails'), ...posts(calls, 'WPDetails')].map((c) => c.body)).not.toContain('GONE');
 });
 
 test('Copy settings from offers the other partner after switching partners', async () => {
@@ -235,6 +320,70 @@ test('BBS users: an untouched password posts unchanged, a typed one replaces it'
   await waitFor(() => expect(posts(calls, 'UserSave')).toHaveLength(2));
   expect(posts(calls, 'UserSave')[1]!.body.split('|').slice(22, 24)).toEqual(['typedNew5', CMS_HIDDEN]);
   expectNoSecrets(container);
+});
+
+test('BBS users: a password box typed in and cleared again keeps the password', async () => {
+  const calls = node();
+  open('bbsusers');
+  fireEvent.click(await screen.findByRole('button', { name: 'RMS' }));
+  const pw = await screen.findByLabelText('BBS password') as HTMLInputElement;
+  const form = screen.getByRole('region', { name: 'User RMS' });
+  fireEvent.input(pw, { target: { value: 'x' } });
+  fireEvent.input(pw, { target: { value: '' } });
+  expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
+  fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'Winlink' } });
+  fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+  await saved();
+  expect(posts(calls, 'UserSave')[0]!.body.split('|').slice(21, 24)).toEqual(['Winlink', USER_PASSWORD, CMS_HIDDEN]);
+});
+
+test('a form changed on the node since it was opened is not posted', async () => {
+  let reads = 0;
+  const calls = node({ [`/Mail/Conf?${KEY}`]: () => (reads++ === 0 ? confPage() : confPage().replace('value="10" size="3" name="Streams"', 'value="10" size="3" name="Streams"').replace('<input value="0" size="3" name="UIInterval">', '<input value="15" size="3" name="UIInterval">')) });
+  open('mailsettings');
+  const streams = await screen.findByLabelText('Streams') as HTMLInputElement;
+  await waitFor(() => expect(streams.value).toBe('10'));
+  fireEvent.input(streams, { target: { value: '12' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('Changed on the node since you opened it; reload to see it');
+  expect(posts(calls, 'Config')).toEqual([]);
+  // reload keeps the edit and shows the node's new value
+  fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+  await waitFor(() => expect((screen.getByLabelText('Send Mail For beacons every (minutes)') as HTMLInputElement).value).toBe('15'));
+  expect((screen.getByLabelText('Streams') as HTMLInputElement).value).toBe('12');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await saved();
+  expect(new URLSearchParams(posts(calls, 'Config')[0]!.body).get('UIInterval')).toBe('15');
+});
+
+test('a record changed on the node since it was opened is not posted', async () => {
+  let reads = 0;
+  const calls = node({ [`/Mail/UserDetails?${KEY}`]: (call) => (call === 'RMS' && reads++ > 0 ? userPage(call).replace('name="QTH" value=""', 'name="QTH" value="Elsewhere"') : userPage(call)) });
+  open('bbsusers');
+  fireEvent.click(await screen.findByRole('button', { name: 'RMS' }));
+  const name = await screen.findByLabelText('Name') as HTMLInputElement;
+  fireEvent.input(name, { target: { value: 'Winlink' } });
+  fireEvent.click(within(screen.getByRole('region', { name: 'User RMS' })).getByRole('button', { name: 'Save' }));
+  await screen.findByText('Changed on the node since you opened it; reload to see it');
+  expect(posts(calls, 'UserSave')).toEqual([]);
+});
+
+test('Other settings draws a multiple select as one, and a disabled field read-only', async () => {
+  const hk = fixture('mail-hk.html').replace('<input name="OvUnsent"',
+    '<select name="Multi" multiple><option value="a" selected>A<option value="b">B</select><input name="Locked" value="7" disabled><input name="OvUnsent"');
+  const calls = node({ [`/Mail/HK?${KEY}`]: hk });
+  open('housekeeping');
+  const multi = await screen.findByLabelText('Multi') as HTMLSelectElement;
+  expect(multi.multiple).toBe(true);
+  expect(Array.from(multi.selectedOptions).map((o) => o.value)).toEqual(['a']);
+  expect(screen.getByLabelText('Locked')).toHaveAttribute('readonly');
+  for (const o of Array.from(multi.options)) o.selected = true;
+  fireEvent.change(multi);
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await saved();
+  const sent = new URLSearchParams(posts(calls, 'HK')[0]!.body);
+  expect(sent.getAll('Multi')).toEqual(['a', 'b']);
+  expect(sent.has('Locked')).toBe(false);
 });
 
 // ---------- Housekeeping ----------

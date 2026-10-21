@@ -7,8 +7,9 @@ import { Card } from '../../ui/Card';
 import { ErrorNote } from '../../ui/ErrorNote';
 import { Skel } from '../../ui/Skel';
 import { clearDraft, getDraft, setDraft } from './drafts';
+import { ChangedOnNodeError, type SaveGuard } from './maildata';
 import type { MailPage } from './fieldmaps';
-import { controlsOf, initialDraft, isDirty, layout, type Control, type Draft } from './mailform';
+import { controlsOf, editedKeys, initialDraft, isDirty, layout, type Control, type Draft } from './mailform';
 
 export interface MailFormState {
   spec: FormSpec | null;
@@ -24,7 +25,7 @@ export interface MailFormState {
   merge(values: Record<string, string>): void;
   discard(): void;
   reload(): void;
-  save(run: (controls: Control[], draft: Draft) => Promise<FormSpec>): Promise<void>;
+  save(run: (controls: Control[], draft: Draft, guard: SaveGuard) => Promise<FormSpec>): Promise<void>;
 }
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)));
@@ -50,20 +51,34 @@ export function useMailForm(id: string | null, load: () => Promise<FormSpec>): M
     setSaved(false);
     setSaveError(undefined);
     loadRef.current().then(
-      (s) => { if (current) setSpec(s); },
+      (s) => {
+        if (!current) return;
+        // Carry the edits (and only the edits) over onto the page as the node now has it.
+        const entry = getDraft(id);
+        if (entry) {
+          const fresh = initialDraft(controlsOf(s));
+          const values = { ...fresh.values };
+          for (const [k, v] of Object.entries(entry.draft.values)) {
+            if (k in values && v !== entry.base[k] && !(entry.draft.touched.includes(k) && v === '')) values[k] = v;
+          }
+          setDraft(id, { values, touched: entry.draft.touched.filter((k) => k in values) }, fresh.values);
+        }
+        setSpec(s);
+      },
       (e: unknown) => { if (current) setLoadError(toError(e)); },
     );
     return () => { current = false; };
   }, [id, tries]);
 
   const controls = useMemo(() => (spec ? controlsOf(spec) : []), [spec]);
-  const stored = id === null ? undefined : getDraft(id);
-  const draft = stored ?? initialDraft(controls);
+  const stored = id === null ? undefined : getDraft(id)?.draft;
+  const start = useMemo(() => initialDraft(controls), [controls]);
+  const draft = stored ?? start;
   const dirty = spec !== null && isDirty(controls, draft);
 
   const write = (next: Draft): void => {
     if (id === null) return;
-    setDraft(id, next);
+    setDraft(id, next, start.values);
     setSaved(false);
     setSaveError(undefined);
   };
@@ -89,7 +104,8 @@ export function useMailForm(id: string | null, load: () => Promise<FormSpec>): M
       setSaved(false);
       setSaveError(undefined);
       try {
-        const next = await run(controls, draft);
+        if (!spec) return;
+        const next = await run(controls, draft, { loaded: spec, edited: editedKeys(controls, draft) });
         clearDraft(id);
         if (alive.current) {
           setSpec(next);
@@ -141,6 +157,14 @@ function Field({ c, state }: { c: Control; state: MailFormState }) {
     );
   } else if (c.type === 'textarea') {
     input = <textarea id={id} rows={c.rows ?? 4} value={value} onInput={onInput} readOnly={c.readOnly} spellcheck={false} />;
+  } else if (c.type === 'select' && c.field.multiple) {
+    const picked = value.split('\n');
+    input = (
+      <select id={id} multiple disabled={c.readOnly}
+        onChange={(e) => state.set(c.key, Array.from((e.currentTarget as HTMLSelectElement).selectedOptions, (o) => o.value).join('\n'))}>
+        {(c.options ?? []).map((o) => <option key={o.value} value={o.value} selected={picked.includes(o.value)}>{o.label}</option>)}
+      </select>
+    );
   } else if (c.type === 'select') {
     input = (
       <select id={id} value={value} onChange={onInput} disabled={c.readOnly}>
@@ -226,7 +250,12 @@ export function FormSection({ title, page, state, onSave, children, extra }: {
           <button type="button" class="btn primary" disabled={!state.dirty || state.saving} onClick={onSave}>Save</button>
         </div>
       </div>
-      {state.saveError && <ErrorNote error={state.saveError} />}
+      {state.saveError && (
+        <div class="mf-loaderr">
+          <ErrorNote error={state.saveError} />
+          {state.saveError instanceof ChangedOnNodeError && <button type="button" class="btn" onClick={() => state.reload()}>Reload</button>}
+        </div>
+      )}
       {children}
       {state.loadError ? (
         <div class="mf-loaderr">

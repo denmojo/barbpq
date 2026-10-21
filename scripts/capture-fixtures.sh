@@ -36,12 +36,19 @@ get -b "$JAR" "$BASE/Node/EditCfg.html" >"$OUT/node-editcfg.html"
 get -b "$JAR" "$BASE/Mail/Header" >"$OUT/mail-header.html"
 KEY="$(grep -ao '/Mail/Status?[A-Za-z0-9]*' "$OUT/mail-header.html" | head -1 | cut -d'?' -f2)"
 [ -n "$KEY" ] || { echo "no mail key" >&2; exit 1; }
-for p in Status Conf HK FWD Users; do
+for p in Status Conf HK FWD Users Wel; do
   get -b "$JAR" "$BASE/Mail/$p?$KEY" >"$OUT/mail-$(echo "$p" | tr A-Z a-z).html"
 done
 # Forwarding partners and the RMS record: both are POSTs; FwdDetails takes the call as the body
 get -b "$JAR" -X POST --data '' "$BASE/Mail/FwdList.txt?$KEY" >"$OUT/mail-fwdlist.txt"
 get -b "$JAR" -X POST --data 'RMS' "$BASE/Mail/FwdDetails?$KEY" >"$OUT/mail-fwddetails-rms.html"
+# BBS users, white pages and messages: lists, then one record each (POSTs; the body is the call or number)
+get -b "$JAR" -X POST --data '' "$BASE/Mail/UserList.txt?$KEY" >"$OUT/mail-userlist.txt"
+get -b "$JAR" -X POST --data 'RMS' "$BASE/Mail/UserDetails?$KEY" >"$OUT/mail-userdetails-rms.html"
+get -b "$JAR" "$BASE/Mail/WPInfo.txt?$KEY" >"$OUT/mail-wpinfo.txt"
+get -b "$JAR" -X POST --data 'N0CALL' "$BASE/Mail/WPDetails?$KEY" >"$OUT/mail-wpdetails-n0call.html"
+get -b "$JAR" -X POST --data '||||' "$BASE/Mail/MsgInfo.txt?$KEY" >"$OUT/mail-msginfo.txt"
+get -b "$JAR" -X POST --data '2' "$BASE/Mail/MsgDetails?$KEY" >"$OUT/mail-msgdetails-2.html"
 
 # Scrub: the config text on the Edit Config page holds the staging test password,
 # and the mail Conf page carries an ISP password blob. Replace both bodies.
@@ -55,6 +62,11 @@ open(p, "wb").write(b)
 p = out + "/mail-conf.html"
 b = open(p, "rb").read()
 b = re.sub(rb'(<input value=")[^"]*(" name="ISPPassword">)', rb"\1\2", b)
+open(p, "wb").write(b)
+# The BBS user page carries the user's password in clear and the CMS pass as stars.
+p = out + "/mail-userdetails-rms.html"
+b = open(p, "rb").read()
+b = re.sub(rb'(name="(?:Password|CMSPass)" value=")[^"]*(")', rb"\1\2", b)
 open(p, "wb").write(b)
 PY
 

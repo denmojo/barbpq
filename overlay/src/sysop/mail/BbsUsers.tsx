@@ -3,7 +3,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Card } from '../../ui/Card';
 import { ErrorNote } from '../../ui/ErrorNote';
 import { Footer } from '../../public/Footer';
-import { getPicked, setPicked } from './drafts';
+import { pickFrom, setPicked } from './drafts';
 import { controlsOf, pipeBody } from './mailform';
 import { addUser, deleteRecord, listRecords, loadRecord, saveRecord } from './maildata';
 import { FormSection, useMailForm } from './FormSection';
@@ -28,8 +28,7 @@ export function BbsUsers() {
   );
   useEffect(() => { void refresh(); }, []);
 
-  const stored = getPicked('bbsusers');
-  const call = stored && calls?.includes(stored) ? stored : calls?.[0] ?? null;
+  const call = pickFrom('bbsusers', calls);
   const form = useMailForm(call ? `user:${call}` : null, () => loadRecord('user', call as string));
 
   const add = async () => {
@@ -86,7 +85,7 @@ export function BbsUsers() {
       </div>
       {call && (
         <FormSection title={`User ${call}`} page="user" state={form}
-          onSave={() => void form.save((_c, draft) => saveRecord('user', call, (spec) => pipeBody('user', controlsOf(spec), draft)))}
+          onSave={() => void form.save((_c, draft, guard) => saveRecord('user', call, (spec) => pipeBody('user', controlsOf(spec), draft), guard))}
           extra={<ConfirmButton label="Delete user" confirm={`Delete ${call} from the BBS?`} busy={busy} onConfirm={() => void remove(call)} />} />
       )}
       <Footer />

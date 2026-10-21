@@ -18,7 +18,7 @@ export function Housekeeping() {
     setRun('running');
     setRunError(undefined);
     try {
-      await saveFormPage('HK', {}, ['RunNow', 'Run Housekeeping']);
+      await saveFormPage('HK', {}, undefined, ['RunNow', 'Run Housekeeping']);
       setRun('done');
     } catch (e) {
       setRunError(e instanceof Error ? e : new Error(String(e)));
@@ -33,7 +33,7 @@ export function Housekeeping() {
         <span class="sub">Lifetimes and the daily clean-up. Saved settings apply at once.</span>
       </div>
       <FormSection title="Housekeeping settings" page="hk" state={form}
-        onSave={() => void form.save((controls, draft) => saveFormPage('HK', formValues(controls, draft)))}
+        onSave={() => void form.save((controls, draft, guard) => saveFormPage('HK', formValues(controls, draft), guard))}
         extra={<ConfirmButton label="Run now" busy={run === 'running'}
           confirm="Run housekeeping now? It deletes messages past their lifetimes." onConfirm={() => void runNow()} />}>
         {run !== 'idle' && <p class="mf-note" role="status">{run === 'running' ? 'Running housekeeping…' : 'Housekeeping ran.'}</p>}

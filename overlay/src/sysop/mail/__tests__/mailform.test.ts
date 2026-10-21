@@ -1,7 +1,7 @@
 import { formPairs, parseForm, type FormSpec } from '../../../data/forms';
 import { fixture } from '../../../data/__tests__/helpers';
 import { ACTION_FIELDS, fieldMap, type MailPage } from '../fieldmaps';
-import { controlsOf, formValues, initialDraft, isDirty, layout, pipeBody, PipeFieldError, type Control } from '../mailform';
+import { changedOnNode, controlsOf, editedKeys, formValues, initialDraft, isDirty, layout, pipeBody, PipeFieldError, type Control } from '../mailform';
 import { CMS_HIDDEN, confPage, fwdPage, ISP_PASSWORD, userPage, USER_PASSWORD } from './sample';
 
 /** Each page's fixture form; 'fwd' has two forms (the shared settings and one partner's record). */
@@ -126,4 +126,44 @@ test('a | in a field, or a word the node reads as another command, is refused be
   const fwd = controlsOf(parseForm(fwdPage('RMS')));
   const f = initialDraft(fwd);
   expect(() => pipeBody('fwd', fwd, { ...f, values: { ...f.values, 'FWD#0': 'StartForward' } })).toThrow(/StartForward/);
+});
+
+test('a password box typed in and cleared counts as untouched: not dirty, and the page value is posted', () => {
+  const spec = parseForm(confPage());
+  const controls = controlsOf(spec);
+  const pw = controls.find((c) => c.name === 'ISPPassword')!;
+  const d = initialDraft(controls);
+  const cleared = { values: { ...d.values, [pw.key]: '' }, touched: [pw.key] };
+  expect(isDirty(controls, cleared)).toBe(false);
+  expect(new URLSearchParams(formPairs(spec, formValues(controls, cleared))).get('ISPPassword')).toBe(ISP_PASSWORD);
+  const user = controlsOf(parseForm(userPage('RMS')));
+  const u = initialDraft(user);
+  const uc = { values: { ...u.values, 'Password#0': '' }, touched: ['Password#0'] };
+  expect(pipeBody('user', user, uc).split('|')[22]).toBe(USER_PASSWORD);
+});
+
+test('changedOnNode: a field the sysop did not edit that differs on the node is a conflict; an edited one is not', () => {
+  const before = parseForm(confPage());
+  const after = parseForm(confPage().replace('<input value="0" size="3" name="UIInterval">', '<input value="15" size="3" name="UIInterval">'));
+  expect(changedOnNode(before, parseForm(confPage()), [])).toBe(false);
+  expect(changedOnNode(before, after, [])).toBe(true);
+  expect(changedOnNode(before, after, ['UIInterval#0'])).toBe(false);
+  const pwChanged = parseForm(confPage().replace(`value="${ISP_PASSWORD}"`, 'value="other"'));
+  expect(changedOnNode(before, pwChanged, [])).toBe(true);
+  expect(changedOnNode(before, parseForm('<form><input name=a></form>'), [])).toBe(true);
+});
+
+test('editedKeys lists changed values and passwords typed in, not cleared ones', () => {
+  const controls = controlsOf(parseForm(confPage()));
+  const d = initialDraft(controls);
+  expect(editedKeys(controls, d)).toEqual([]);
+  const e = { values: { ...d.values, 'Streams#0': '12', 'ISPPassword#0': '' }, touched: ['ISPPassword#0'] };
+  expect(editedKeys(controls, e)).toEqual(['Streams#0']);
+  expect(editedKeys(controls, { ...e, values: { ...e.values, 'ISPPassword#0': 'n' } })).toEqual(['Streams#0', 'ISPPassword#0']);
+});
+
+test('a disabled field is a read-only control; a multiple select starts with its selected options', () => {
+  const controls = controlsOf(parseForm('<form><input name=a value=1 disabled><select name=m multiple><option value=x selected>X<option value=y selected>Y<option value=z>Z</select></form>'));
+  expect(controls[0]?.readOnly).toBe(true);
+  expect(initialDraft(controls).values['m#0']).toBe('x\ny');
 });

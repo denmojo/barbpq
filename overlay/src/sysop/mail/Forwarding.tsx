@@ -4,7 +4,7 @@ import { Card } from '../../ui/Card';
 import { ErrorNote } from '../../ui/ErrorNote';
 import { Footer } from '../../public/Footer';
 import { useShell } from '../shell';
-import { getPicked, setPicked } from './drafts';
+import { pickFrom, setPicked } from './drafts';
 import { controlsOf, formValues, initialDraft, pipeBody } from './mailform';
 import { loadFormPage, loadRecord, saveFormPage, saveRecord } from './maildata';
 import { FormSection, useMailForm, type MailFormState } from './FormSection';
@@ -50,7 +50,8 @@ function CopyFrom({ call, partners, state }: { call: string; partners: string[];
 export function Forwarding() {
   const shell = useShell();
   const partners = shell.fwd.data?.partners;
-  const call = getPicked('forwarding') ?? partners?.[0] ?? null;
+  // Only a call on the partner list: FwdDetails for any other call crashes the node.
+  const call = pickFrom('forwarding', partners);
   const record = useMailForm(call ? `fwd:${call}` : null, () => loadRecord('fwd', call as string));
   const common = useMailForm('fwdcommon', () => loadFormPage('FWD'));
 
@@ -69,12 +70,12 @@ export function Forwarding() {
       </div>
       {call && (
         <FormSection title={`Forwarding for ${call}`} page="fwd" state={record}
-          onSave={() => void record.save((_c, draft) => saveRecord('fwd', call, (spec) => pipeBody('fwd', controlsOf(spec), draft)))}>
+          onSave={() => void record.save((_c, draft, guard) => saveRecord('fwd', call, (spec) => pipeBody('fwd', controlsOf(spec), draft), guard))}>
           {partners && <CopyFrom key={call} call={call} partners={partners} state={record} />}
         </FormSection>
       )}
       <FormSection title="Shared forwarding settings" page="fwd" state={common}
-        onSave={() => void common.save((controls, draft) => saveFormPage('FWD', formValues(controls, draft)))} />
+        onSave={() => void common.save((controls, draft, guard) => saveFormPage('FWD', formValues(controls, draft), guard))} />
       <Footer />
     </>
   );

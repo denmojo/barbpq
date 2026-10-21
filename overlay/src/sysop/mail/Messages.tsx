@@ -1,103 +1,113 @@
-// Messages: the BBS message list from the Mail API, with counts taken from its status fields.
+// Messages: every BBS message, read the way the old Msgs page reads them (MsgInfo.txt, then
+// one MsgDetails each), with counts taken from their status fields.
 import type { ComponentChildren } from 'preact';
-import { usePoll } from '../../data/poll';
+import { useEffect, useState } from 'preact/hooks';
 import { Card } from '../../ui/Card';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorNote } from '../../ui/ErrorNote';
-import { OfflineBanner } from '../../ui/OfflineBanner';
-import { Pending } from '../../ui/Skel';
+import { Skel } from '../../ui/Skel';
 import { Table } from '../../ui/Table';
 import { Unknown } from '../../ui/Unknown';
-import { formatClock, formatStamp } from '../../ui/format';
+import { formatClock } from '../../ui/format';
 import { Footer } from '../../public/Footer';
-import { useUpdated } from '../../public/useUpdated';
 import { IconMessages } from '../icons';
-import { fetchMessages, type MailMessage, type MessageList } from './maildata';
+import { fetchMessages, type MailMessage } from './maildata';
 import './mail.css';
 
-export const MESSAGES_POLL_MS = 60_000;
-
-/** Status letters as the node stores them (MsgInfo.status). */
+/** Status letters as the node stores them (MsgInfo.status; the Status select on MsgDetails). */
 export const STATUS: Record<string, string> = {
   N: 'New', Y: 'Read', F: 'Forwarded', K: 'Killed', H: 'Held', D: 'Delivered', $: 'Bulletin',
 };
 const TYPE: Record<string, string> = { P: 'Personal', B: 'Bulletin', T: 'NTS' };
 
-const NOT_SYSOP = 'The mail API answered this session not as sysop, so its list leaves out messages a sysop would see';
 const NO_BOUNCED = 'LinBPQ has no bounced status: a returned message arrives as a new message, so the list cannot count bounces';
 
-export interface MessageCounts { held: number | null; sent: number | null; reason: string | null }
-
-/** Held is status H, sent is status F (forwarded). Neither is known from a list scoped below sysop. */
-export function messageCounts(list: MessageList): MessageCounts {
-  if (!list.sysopScope) return { held: null, sent: null, reason: NOT_SYSOP };
-  const n = (s: string) => list.msgs.filter((m) => m.status === s).length;
-  return { held: n('H'), sent: n('F'), reason: null };
+/** Held is status H, sent is status F (forwarded). */
+export function messageCounts(msgs: MailMessage[]): { held: number; sent: number } {
+  const n = (s: string) => msgs.filter((m) => m.status === s).length;
+  return { held: n('H'), sent: n('F') };
 }
+
+type Load =
+  | { phase: 'loading'; done: number; total: number | null }
+  | { phase: 'done'; msgs: MailMessage[]; at: Date }
+  | { phase: 'error'; error: Error };
 
 function Tile({ k, title, children }: { k: string; title: string; children: ComponentChildren }) {
   return <div class="q" title={title}><div class="k">{k}</div><div class="v">{children}</div></div>;
 }
 
 function Row({ m }: { m: MailMessage }) {
-  const created = Number.isFinite(m.created) && m.created > 0 ? new Date(m.created * 1000).toISOString() : null;
   return (
     <tr class={m.status === 'H' ? 'held' : undefined}>
       <td class="mono r">{m.id}</td>
       <td title={TYPE[m.type] ?? m.type}>{m.type}</td>
       <td>{STATUS[m.status] ?? <Unknown reason={`Status letter "${m.status}" is not one LinBPQ documents`} />}</td>
       <td class="mono">{m.from}</td>
-      <td class="mono">{m.to}</td>
+      <td class="mono">{m.to}{m.via ? `@${m.via}` : ''}</td>
       <td class="subj">{m.subject}</td>
-      <td class="mono r">{m.size}</td>
-      <td>{created ? formatStamp(created) : <Unknown reason="The API gave no creation time" />}</td>
+      <td class="mono r">{Number.isFinite(m.size) ? m.size : <Unknown reason="The node gave no size" />}</td>
+      <td class="mono">{m.sent || <Unknown reason="The node gave no date" />}</td>
     </tr>
   );
 }
 
 export function Messages() {
-  const poll = usePoll(fetchMessages, MESSAGES_POLL_MS);
-  const updated = useUpdated(poll.data);
-  const list = poll.data;
-  const counts = list ? messageCounts(list) : null;
-  const count = (v: number | null | undefined) =>
-    counts === null ? <Pending poll={poll} /> : v === null || v === undefined ? <Unknown reason={counts.reason ?? ''} /> : v;
+  const [load, setLoad] = useState<Load>({ phase: 'loading', done: 0, total: null });
+  const [tries, setTries] = useState(0);
+  // One request per message on the node: read when the screen opens and on Refresh, never on a timer.
+  useEffect(() => {
+    let alive = true;
+    setLoad({ phase: 'loading', done: 0, total: null });
+    fetchMessages((done, total) => { if (alive) setLoad({ phase: 'loading', done, total }); }).then(
+      (msgs) => { if (alive) setLoad({ phase: 'done', msgs, at: new Date() }); },
+      (e: unknown) => { if (alive) setLoad({ phase: 'error', error: e instanceof Error ? e : new Error(String(e)) }); },
+    );
+    return () => { alive = false; };
+  }, [tries]);
+
+  const counts = load.phase === 'done' ? messageCounts(load.msgs) : null;
+  const count = (v: number | undefined) =>
+    load.phase === 'error' ? <Unknown reason={`The message list did not load: ${load.error.message}`} /> : v === undefined ? <Skel /> : v;
+  const progress = load.phase === 'loading'
+    ? load.total === null ? 'Reading the message list' : `Reading message ${load.done + 1} of ${load.total}`
+    : null;
 
   return (
     <>
       <div class="titlebar">
         <h1>Messages</h1>
-        <span class="sub">{list ? `${list.msgs.length} in the list` : 'Loading'}{updated ? ` · checked ${formatClock(updated)}` : ''}</span>
+        <span class="sub">
+          {load.phase === 'done' ? `${load.msgs.length} on the BBS · read ${formatClock(load.at)}` : load.phase === 'error' ? 'Not loaded' : 'Loading'}
+        </span>
+        <div class="mf-actions">
+          <button type="button" class="btn" disabled={load.phase === 'loading'} onClick={() => setTries((n) => n + 1)}>Refresh</button>
+        </div>
       </div>
-      <OfflineBanner show={poll.stale} since={updated} />
       <div class="grid">
         <Card title="Message counts" span={12}>
           <div class="queue">
             <Tile k="Held" title="Messages with status H, held for sysop review">{count(counts?.held)}</Tile>
             <Tile k="Sent" title="Messages with status F, forwarded">{count(counts?.sent)}</Tile>
-            <Tile k="Bounced" title="Messages returned undelivered">{counts === null ? <Pending poll={poll} /> : <Unknown reason={NO_BOUNCED} />}</Tile>
+            <Tile k="Bounced" title="Messages returned undelivered">{load.phase === 'loading' ? <Skel /> : <Unknown reason={NO_BOUNCED} />}</Tile>
           </div>
         </Card>
         <Card title="Message list" span={12}>
-          {list && !list.sysopScope && (
-            <p class="mf-note" role="status">
-              The mail API treats this session as a regular user, so this list holds only the messages a non-sysop may read (bulletins and mail to that user).
-            </p>
-          )}
-          {poll.error && <ErrorNote error={poll.error} />}
-          {!list ? <Pending poll={poll} /> : list.msgs.length === 0 ? (
-            <EmptyState icon={<IconMessages />} title="No messages in the list." />
+          {progress && <p class="mf-note" role="status">{progress}</p>}
+          {load.phase === 'error' && <ErrorNote error={load.error} />}
+          {load.phase === 'done' && (load.msgs.length === 0 ? (
+            <EmptyState icon={<IconMessages />} title="No messages on the BBS." />
           ) : (
             <Table label="Messages" columns={[
               { label: '#', align: 'right' }, { label: 'Type' }, { label: 'Status' }, { label: 'From' }, { label: 'To' },
-              { label: 'Subject' }, { label: 'Size', align: 'right' }, { label: 'Created' },
+              { label: 'Subject' }, { label: 'Size', align: 'right' }, { label: 'Sent' },
             ]}>
-              {list.msgs.map((m) => <Row key={m.id} m={m} />)}
+              {load.msgs.map((m) => <Row key={m.id} m={m} />)}
             </Table>
-          )}
+          ))}
         </Card>
       </div>
-      <Footer updated={updated} />
+      <Footer updated={load.phase === 'done' ? load.at : undefined} />
     </>
   );
 }

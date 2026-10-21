@@ -1,19 +1,16 @@
 // Mail settings: the BBS configuration (Conf), welcome messages and prompts (Wel), white pages (WP).
-import { signal } from '@preact/signals';
 import { useEffect, useState } from 'preact/hooks';
 import { Card } from '../../ui/Card';
 import { ErrorNote } from '../../ui/ErrorNote';
 import { Tabs } from '../../ui/Tabs';
 import { Footer } from '../../public/Footer';
-import { getPicked, setPicked } from './drafts';
+import { mailTab, pickFrom, setPicked, type MailTab } from './drafts';
 import { controlsOf, formValues, pipeBody } from './mailform';
 import { listRecords, loadFormPage, loadRecord, saveFormPage, saveRecord } from './maildata';
 import { FormSection, useMailForm } from './FormSection';
 import { RecordPicker } from './RecordPicker';
 import './mail.css';
 
-export type MailTab = 'conf' | 'wel' | 'wp';
-export const mailTab = signal<MailTab>('conf');
 
 const TABS: { id: MailTab; label: string }[] = [
   { id: 'conf', label: 'Configuration' },
@@ -25,7 +22,7 @@ function Conf() {
   const form = useMailForm('conf', () => loadFormPage('Conf'));
   return (
     <FormSection title="Mail configuration" page="conf" state={form}
-      onSave={() => void form.save((controls, draft) => saveFormPage('Conf', formValues(controls, draft)))} />
+      onSave={() => void form.save((controls, draft, guard) => saveFormPage('Conf', formValues(controls, draft), guard))} />
   );
 }
 
@@ -33,7 +30,7 @@ function Welcome() {
   const form = useMailForm('wel', () => loadFormPage('Wel'));
   return (
     <FormSection title="Welcome messages and prompts" page="wel" state={form}
-      onSave={() => void form.save((controls, draft) => saveFormPage('Wel', formValues(controls, draft)))} />
+      onSave={() => void form.save((controls, draft, guard) => saveFormPage('Wel', formValues(controls, draft), guard))} />
   );
 }
 
@@ -43,7 +40,7 @@ function WhitePages() {
   useEffect(() => {
     listRecords('wp').then(setCalls, (e: unknown) => setError(e instanceof Error ? e : new Error(String(e))));
   }, []);
-  const call = getPicked('wp') ?? calls?.[0] ?? null;
+  const call = pickFrom('wp', calls);
   const form = useMailForm(call ? `wp:${call}` : null, () => loadRecord('wp', call as string));
   return (
     <>
@@ -55,7 +52,7 @@ function WhitePages() {
       </div>
       {call && (
         <FormSection title={`White pages for ${call}`} page="wp" state={form}
-          onSave={() => void form.save((_c, draft) => saveRecord('wp', call, (spec) => pipeBody('wp', controlsOf(spec), draft)))} />
+          onSave={() => void form.save((_c, draft, guard) => saveRecord('wp', call, (spec) => pipeBody('wp', controlsOf(spec), draft), guard))} />
       )}
     </>
   );

@@ -60,8 +60,9 @@ const crlf = (v: string): string => v.replace(/\r\n|\r|\n/g, '\r\n');
  * Build the field/value pairs a browser would send. Every field goes, edited or not, so a
  * save never drops settings the user did not touch. Disabled fields are left out.
  *
- * `values` is keyed by field name; for a repeated name `name#2` addresses the third field
- * (`name` alone addresses the first). Checkbox: '' unchecks, any other string checks, and a
+ * `values` is keyed by field name; `name#2` addresses the third field of that name (counted
+ * over every field of the name). A bare `name` addresses the radio group when the name has
+ * radios, else the first field of that name. Checkbox: '' unchecks, any other string checks, and a
  * checked box posts its own value ("on" when it has none). Radio: the value selects the
  * option; a bare name applies to every radio of that name. Select multiple: the given
  * value lists the picked options separated by "\n". Textarea line breaks go out as CRLF.
@@ -70,12 +71,15 @@ const crlf = (v: string): string => v.replace(/\r\n|\r|\n/g, '\r\n');
 export function formPairs(spec: FormSpec, values: Record<string, string>): [string, string][] {
   const seen = new Map<string, number>();
   const radioPicked = new Set<string>();
+  // A bare name belongs to the radio group when the name has radios, else to the first field.
+  const radioNames = new Set(spec.fields.filter((f) => f.type === 'radio').map((f) => f.name));
   const out: [string, string][] = [];
   for (const f of spec.fields) {
     const n = seen.get(f.name) ?? 0;
     seen.set(f.name, n + 1);
     if (f.disabled) continue;
-    const key = `${f.name}#${n}` in values ? `${f.name}#${n}` : n === 0 && f.name in values ? f.name : null;
+    const bare = n === 0 && !radioNames.has(f.name) && f.name in values;
+    const key = `${f.name}#${n}` in values ? `${f.name}#${n}` : bare ? f.name : null;
     const given = key === null ? undefined : values[key];
     switch (f.type) {
       case 'submit':

@@ -4,13 +4,20 @@
 import { signal } from '@preact/signals';
 import type { Draft } from './mailform';
 
-const drafts = signal<Record<string, Draft>>({});
+/** A draft and the page values it started from, so a reload can tell the edits apart. */
+export interface DraftEntry { draft: Draft; base: Record<string, string> }
+
+const drafts = signal<Record<string, DraftEntry>>({});
 const picked = signal<Record<string, string>>({});
 
-export const getDraft = (id: string): Draft | undefined => drafts.value[id];
+export type MailTab = 'conf' | 'wel' | 'wp';
+/** The Mail settings tab; the palette sets it. */
+export const mailTab = signal<MailTab>('conf');
 
-export function setDraft(id: string, d: Draft): void {
-  drafts.value = { ...drafts.value, [id]: d };
+export const getDraft = (id: string): DraftEntry | undefined => drafts.value[id];
+
+export function setDraft(id: string, draft: Draft, base: Record<string, string>): void {
+  drafts.value = { ...drafts.value, [id]: { draft, base } };
 }
 
 export function clearDraft(id: string): void {
@@ -18,15 +25,23 @@ export function clearDraft(id: string): void {
   drafts.value = rest;
 }
 
-/** The record (partner, user, WP call) a screen has open. */
+/** The record (partner, user, WP call) a screen last opened. Screens use it only while their list holds it. */
 export const getPicked = (screen: string): string | undefined => picked.value[screen];
 
 export function setPicked(screen: string, call: string): void {
   picked.value = { ...picked.value, [screen]: call };
 }
 
+/** The pick if the list holds it, else the list's first entry; null while the list is loading. */
+export function pickFrom(screen: string, list: string[] | undefined): string | null {
+  if (!list) return null;
+  const p = picked.value[screen];
+  return p && list.includes(p) ? p : list[0] ?? null;
+}
+
 /** An explicit sign-out forgets every draft and open record. */
 export function resetMail(): void {
   drafts.value = {};
   picked.value = {};
+  mailTab.value = 'conf';
 }

@@ -232,3 +232,11 @@ test('a bare radio name picks the option among every radio of that name', () => 
   // the text field sharing the name is addressed by its index
   expect(formPairs(spec, { Type: 'TypeP', 'Type#2': 'H' })).toEqual([['Type', 'TypeP'], ['Type', 'H']]);
 });
+
+test('a bare name shared by radios and other fields addresses only the radios, wherever the text field sits', () => {
+  const spec = parseForm('<form action=/x><input name=Type value=T0><input type=radio name=Type value=B checked><input type=radio name=Type value=P></form>');
+  expect(formPairs(spec, { Type: 'P' })).toEqual([['Type', 'T0'], ['Type', 'P']]);
+  expect(formPairs(spec, { 'Type#0': 'Z', Type: 'P' })).toEqual([['Type', 'Z'], ['Type', 'P']]);
+  // with no radio of that name, the bare name is the first field
+  expect(formPairs(parseForm('<form action=/x><input name=a value=1><input name=a value=2></form>'), { a: '9' })).toEqual([['a', '9'], ['a', '2']]);
+});

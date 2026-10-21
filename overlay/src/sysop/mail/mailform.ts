@@ -60,7 +60,8 @@ export function controlsOf(spec: FormSpec): Control[] {
       occurrence: n,
       options: field.options,
       secret: field.type === 'password' || SECRET_FIELDS.has(field.name),
-      readOnly: false,
+      // A disabled field is not posted, so it is shown but cannot be edited.
+      readOnly: !!field.disabled,
       label: field.name,
     });
   }
@@ -72,7 +73,7 @@ const matches = (m: MappedField, c: Control): boolean =>
 
 function labelled(c: Control, m: MappedField): Control {
   const options = c.options && m.options ? c.options.map((o) => ({ ...o, label: m.options?.[o.value] ?? o.label })) : c.options;
-  return { ...c, label: m.label, help: m.help, rows: m.rows, readOnly: !!m.readOnly, options };
+  return { ...c, label: m.label, help: m.help, rows: m.rows, readOnly: c.readOnly || !!m.readOnly, options };
 }
 
 /**
@@ -110,27 +111,60 @@ export function initialDraft(controls: Control[]): Draft {
     if (c.secret) values[c.key] = '';
     else if (c.type === 'checkbox') values[c.key] = c.field.checked ? 'on' : '';
     else if (c.type === 'radio') values[c.key] = c.options?.find((o) => o.selected)?.value ?? '';
+    else if (c.field.multiple) values[c.key] = (c.options ?? []).filter((o) => o.selected).map((o) => o.value).join('\n');
     else values[c.key] = c.field.value;
   }
   return { values, touched: [] };
 }
 
-const untouchedSecret = (c: Control, d: Draft): boolean => c.secret && !d.touched.includes(c.key);
+/**
+ * A password box posts the page's value unless the sysop typed something into it. Empty
+ * always means keep: clearing a box never blanks the node's password.
+ */
+const keepSecret = (c: Control, d: Draft): boolean => c.secret && !(d.touched.includes(c.key) && (d.values[c.key] ?? '') !== '');
 
-/** Values for formPairs. An untouched password is left out, so the page's own value goes. */
+/** Values for formPairs. A kept password and a read-only field are left out, so the page's own value goes. */
 export function formValues(controls: Control[], draft: Draft): Record<string, string> {
   const out: Record<string, string> = {};
   for (const c of controls) {
-    if (untouchedSecret(c, draft) || c.readOnly) continue;
+    if (keepSecret(c, draft) || c.readOnly) continue;
     const v = draft.values[c.key];
     if (v !== undefined) out[c.key] = v;
   }
   return out;
 }
 
-export function isDirty(controls: Control[], draft: Draft): boolean {
+/** Keys the sysop changed from the page: a different value, or a password typed in. */
+export function editedKeys(controls: Control[], draft: Draft): string[] {
   const start = initialDraft(controls);
-  return controls.some((c) => (c.secret ? draft.touched.includes(c.key) : draft.values[c.key] !== start.values[c.key]));
+  return controls
+    .filter((c) => (c.secret ? !keepSecret(c, draft) : (draft.values[c.key] ?? start.values[c.key]) !== start.values[c.key]))
+    .map((c) => c.key);
+}
+
+export function isDirty(controls: Control[], draft: Draft): boolean {
+  return editedKeys(controls, draft).length > 0;
+}
+
+/** What a control holds on the page: its value, ticks or picked options (passwords included, in memory). */
+const stateOf = (c: Control): string =>
+  c.type === 'checkbox' ? String(!!c.field.checked)
+    : c.type === 'radio' || c.field.multiple ? (c.options ?? []).filter((o) => o.selected).map((o) => o.value).join('\n')
+      : c.field.value;
+
+/**
+ * True when the node's form now differs from the one the draft was made on in any field the
+ * sysop did not edit, or in its shape. Posting then would write the old value back over the change.
+ */
+export function changedOnNode(before: FormSpec, after: FormSpec, edited: string[]): boolean {
+  const a = controlsOf(before);
+  const b = new Map(controlsOf(after).map((c) => [c.key, c]));
+  if (a.length !== b.size) return true;
+  return a.some((c) => {
+    const d = b.get(c.key);
+    if (!d || d.type !== c.type) return true;
+    return !edited.includes(c.key) && stateOf(c) !== stateOf(d);
+  });
 }
 
 /** A record field the node would misread: a "|", or a word its save handler treats as a command. */
@@ -149,7 +183,7 @@ export function pipeBody(page: PipePage, controls: Control[], draft: Draft): str
     let v: string;
     if (!c) v = '';
     else if (c.type === 'checkbox') v = draft.values[c.key] ? 'true' : 'false';
-    else if (untouchedSecret(c, draft)) v = c.field.value;
+    else if (keepSecret(c, draft)) v = c.field.value;
     else v = draft.values[c.key] ?? c.field.value;
     if (v.includes('|')) throw new PipeFieldError(name, `${c?.label ?? name} cannot contain "|": the node splits the record on it`);
     body += `${v}|`;
