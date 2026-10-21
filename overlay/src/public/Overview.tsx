@@ -11,17 +11,33 @@ import { OfflineBanner } from '../ui/OfflineBanner';
 import { StatusPill } from '../ui/StatusPill';
 import { Unknown } from '../ui/Unknown';
 import { Pending, Skel } from '../ui/Skel';
-import { formatAgo, formatClock, formatFreq, formatUptime } from '../ui/format';
+import { formatAgo, formatClock, formatFreq, formatStamp, formatUptime } from '../ui/format';
 import { Footer } from './Footer';
 import { heroStatus, linkPillFrom, loadHeardFor, portMeta, sortPorts, viaText } from './model';
 import { useUpdated } from './useUpdated';
 
+/** Today's time as a clock, an earlier day's with the date. */
+function checkedAt(t: string, now: Date = new Date()): string {
+  const d = new Date(t);
+  return d.toDateString() === now.toDateString() ? formatClock(d) : formatStamp(t);
+}
+
+/** The CMS state changes only on a connect attempt, so it is shown with that attempt's time. */
 function CmsFact({ poll }: { poll: Poll<CmsState> }) {
   const cms = poll.data;
   if (!cms) return <Pending poll={poll} />;
-  if (cms.ok === true) return <span class="ok-text">reachable</span>;
-  if (cms.ok === false) return <span class="down-text" title={cms.lastSuccess ? `Last reached ${cms.lastSuccess}` : undefined}>unreachable</span>;
-  return <Unknown reason="No CMS connect attempt since the node started" />;
+  if (cms.ok === null) return <Unknown reason="No CMS connect attempt since the node started" />;
+  const tried = cms.lastAttempt;
+  const title = [
+    tried ? `Last CMS connect attempt ${formatStamp(tried)}.` : '',
+    cms.ok ? 'It tests the connection, not a login.' : cms.lastSuccess ? `Last reached ${formatStamp(cms.lastSuccess)}.` : '',
+  ].filter(Boolean).join(' ') || undefined;
+  return (
+    <span title={title}>
+      <span class={cms.ok ? 'ok-text' : 'down-text'}>{cms.ok ? 'reachable' : 'unreachable'}</span>
+      {tried && `, checked ${checkedAt(tried)}`}
+    </span>
+  );
 }
 
 function HeroCard({ station, links, cms }: { station: Poll<Station>; links: Poll<LinkState[]>; cms: Poll<CmsState> }) {

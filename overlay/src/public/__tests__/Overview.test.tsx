@@ -112,6 +112,23 @@ test('who is connected lists sessions when there are some', async () => {
   expect(within(card).queryByText('Nobody is connected right now.')).toBeNull();
 });
 
+test('CMS state carries when it was last checked: a connect attempt, not a login', async () => {
+  render(<Overview />);
+  const hero = await screen.findByRole('region', { name: 'Node status' });
+  const ok = await within(hero).findByText('reachable');
+  expect(ok.closest('.v')).toHaveTextContent('reachable, checked 08:00');
+  expect(ok.closest('[title]')?.getAttribute('title')).toBe('Last CMS connect attempt Oct 20 08:00. It tests the connection, not a login.');
+});
+
+test('an unreachable CMS checked on an earlier day shows the date', async () => {
+  vi.mocked(ui.getCms).mockResolvedValue({ lastAttempt: '2026-10-19T20:05:00Z', lastSuccess: '2026-10-18T10:00:00Z', ok: false });
+  render(<Overview />);
+  const hero = await screen.findByRole('region', { name: 'Node status' });
+  const down = await within(hero).findByText('unreachable');
+  expect(down.closest('.v')).toHaveTextContent('unreachable, checked Oct 19 13:05');
+  expect(down.closest('[title]')?.getAttribute('title')).toBe('Last CMS connect attempt Oct 19 13:05. Last reached Oct 18 03:00.');
+});
+
 test('CMS and uptime the node did not report render Unknown with a reason', async () => {
   vi.mocked(ui.getCms).mockResolvedValue({ lastAttempt: null, lastSuccess: null, ok: null });
   vi.mocked(ui.getStation).mockResolvedValue({ ...(await ui.getStation()), uptimeSec: null });
