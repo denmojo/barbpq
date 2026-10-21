@@ -24,6 +24,6 @@ export default defineConfig({
   },
   server: {
     port: 8083,
-    proxy: { '/api': 'http://127.0.0.1:8008', '/Node': 'http://127.0.0.1:8008' },
+    proxy: { '/api': 'http://127.0.0.1:18088', '/Node': 'http://127.0.0.1:18088', '/Mail': 'http://127.0.0.1:18088' },
   },
 });
