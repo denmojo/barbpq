@@ -6,7 +6,10 @@ import type { CfgLine } from './cfgcheck';
 export type FoldKind = 'port' | 'tncport' | 'text';
 
 export interface FoldRegion {
-  /** Kind and ordinal ("port:0", "text:1"): stays with the block while lines elsewhere come and go. */
+  /**
+   * "port:2" for the PORT block with PORTNUM=2, so a fold stays on its block when blocks are added
+   * or removed above it; kind and ordinal ("port#0", "text#1") for a block with no PORTNUM.
+   */
   key: string;
   kind: FoldKind;
   /** 1-based first and last line, both inside the region (PORT ... ENDPORT, IDMSG: ... ***). */
@@ -37,8 +40,12 @@ function portLabel(body: CfgLine[], start: number): string {
 export function foldRegions(lines: CfgLine[]): FoldRegion[] {
   const out: FoldRegion[] = [];
   const count: Record<FoldKind, number> = { port: 0, tncport: 0, text: 0 };
-  const add = (kind: FoldKind, start: number, end: number, label: string): void => {
-    if (end > start) out.push({ key: `${kind}:${count[kind]++}`, kind, start, end, label });
+  const add = (kind: FoldKind, start: number, end: number, label: string, num?: string): void => {
+    if (end <= start) return;
+    const ord = count[kind]++;
+    let key = num ? `${kind}:${num}` : `${kind}#${ord}`;
+    if (out.some((r) => r.key === key)) key = `${kind}#${ord}`;   // two blocks with one PORTNUM
+    out.push({ key, kind, start, end, label });
   };
   let i = 0;
   while (i < lines.length) {
@@ -46,7 +53,9 @@ export function foldRegions(lines: CfgLine[]): FoldRegion[] {
     if (l.block !== null && l.kind === 'port') {
       let j = i;
       while (j + 1 < lines.length && (lines[j + 1] as CfgLine).block === l.block) j++;
-      add('port', l.n, (lines[j] as CfgLine).n, portLabel(lines.slice(i, j + 1), l.n));
+      const body = lines.slice(i, j + 1);
+      const num = body.find((x) => x.kind === 'keyword' && x.key === 'PORTNUM');
+      add('port', l.n, (lines[j] as CfgLine).n, portLabel(body, l.n), num ? valueOf(num) || undefined : undefined);
       i = j + 1;
       continue;
     }
