@@ -871,8 +871,16 @@ int uiapi_events_reply(char *response, size_t cap, const char *param, int sysop)
 
 /* ---- link state from plain fields (tested on its own) ---- */
 
-const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t cap)
+static const char *linked_by(const char *ev, const char **evidence)
 {
+	*evidence = ev;
+	return "linked";
+}
+
+const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t cap,
+	const char **evidence)
+{
+	*evidence = NULL;
 	if (!k->have)
 	{
 		snprintf(detail, cap, "driver reports no link state");
@@ -886,12 +894,12 @@ const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t c
 	if (k->ip && k->tcp && k->slave)
 	{
 		snprintf(detail, cap, k->connected ? "KISS TCP client connected" : "KISS TCP listening, no client");
-		return k->connected ? "linked" : "down";
+		return k->connected ? linked_by("link", evidence) : "down";
 	}
 	if (k->ip && k->tcp)
 	{
 		snprintf(detail, cap, k->connected ? "KISS TCP connected" : "KISS TCP not connected");
-		return k->connected ? "linked" : "down";
+		return k->connected ? linked_by("link", evidence) : "down";
 	}
 	if (k->ip)
 	{
@@ -900,34 +908,44 @@ const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t c
 	}
 	/* The node knows only that it holds the device open, not that the TNC answers */
 	snprintf(detail, cap, k->open ? "serial device open" : "serial device not open");
-	return k->open ? "linked" : "down";
+	return k->open ? linked_by("device", evidence) : "down";
 }
 
-const char *uiapi_axip_link(int sockets, int unbound_udp, const time_t *heard, int n,
-	time_t now, char *detail, size_t cap)
+const char *uiapi_axip_link(const struct ui_axip_link *a, time_t now, char *detail, size_t cap,
+	const char **evidence)
 {
+	char lead[48], peers[64];
 	int i, recent = 0;
 
-	if (unbound_udp > 0)
+	*evidence = NULL;
+	if (a->udp_n > 0 && a->udp_bound <= 0)
 	{
-		snprintf(detail, cap, "AXIP UDP %d not bound", unbound_udp);
+		if (a->udp_n == 1)
+			snprintf(detail, cap, "AXIP UDP %d not bound", a->udp_unbound);
+		else
+			snprintf(detail, cap, "none of %d AXIP UDP ports bound", a->udp_n);
 		return "down";
 	}
-	if (sockets <= 0)
+	if (a->raw_open + a->udp_bound + a->tcp_open <= 0)
 	{
 		snprintf(detail, cap, "AXIP socket not open");
 		return "down";
 	}
-	if (n <= 0)
+	if (a->udp_n > 1)
+		snprintf(lead, sizeof(lead), "%d of %d UDP ports bound", a->udp_bound, a->udp_n);
+	else
+		snprintf(lead, sizeof(lead), "socket open");
+	if (a->n <= 0)
+		snprintf(peers, sizeof(peers), "no peers mapped");
+	else
 	{
-		snprintf(detail, cap, "socket open, no peers mapped");
-		return "linked";
+		for (i = 0; i < a->n; i++)
+			if (a->heard[i] != 0 && now - a->heard[i] <= 3600)
+				recent++;
+		snprintf(peers, sizeof(peers), "%d of %d peers heard in the last hour", recent, a->n);
 	}
-	for (i = 0; i < n; i++)
-		if (heard[i] != 0 && now - heard[i] <= 3600)
-			recent++;
-	snprintf(detail, cap, "socket open, %d of %d peers heard in the last hour", recent, n);
-	return "linked";
+	snprintf(detail, cap, "%s, %s%s", lead, peers, a->raw_open ? ", raw IP socket bind not checked" : "");
+	return linked_by("socket", evidence);
 }
 
 /* ---- /api/ui handlers (linbpq only) ---- */
@@ -1218,33 +1236,30 @@ static int axip_udp_bound(SOCKET s, int want_port, int want_v6)
 	return ss.ss_family == AF_INET && ((struct sockaddr_in *)&ss)->sin_port == htons(want_port);
 }
 
-/* The AXIP driver's sockets that are open. *unbound gets the first configured
-   UDP port with no socket bound to it (0 when all are). The raw IP 93 socket
-   binds to any address with port 0 (bpqaxip.c:874-878), so for it being open
-   is all there is to read. A TCP map counts while connected or listening
-   (bpqaxip.c:1021, 2784, 3031). */
-static int axip_sockets(struct AXIPPORTINFO *A, int *unbound)
+/* The AXIP driver's open sockets, into a. The raw IP 93 socket binds to any
+   address with port 0 (bpqaxip.c:874-878), so for it being open is all there
+   is to read; the detail says its bind was not checked. A TCP map counts
+   while connected or listening (bpqaxip.c:1021, 2784, 3031). */
+static void axip_sockets(struct AXIPPORTINFO *A, struct ui_axip_link *a)
 {
-	int i, n = 0;
+	int i;
 
-	*unbound = 0;
-	if (A->needip && A->sock > 0)
-		n++;
+	a->raw_open = A->needip && A->sock > 0;
 	for (i = 0; i < A->NumberofUDPPorts && i < MAXUDPPORTS + 2; i++)
 	{
+		a->udp_n++;
 		if (axip_udp_bound(A->udpsock[i], A->udpport[i], A->IPv6[i]))
-			n++;
-		else if (!*unbound)
-			*unbound = A->udpport[i] > 0 ? A->udpport[i] : -1;
+			a->udp_bound++;
+		else if (!a->udp_unbound)
+			a->udp_unbound = A->udpport[i] > 0 ? A->udpport[i] : -1;
 	}
 	for (i = 0; i < A->arp_table_len && i < MAX_ENTRIES; i++)
 		if (A->arp_table[i].TCPState == UI_AXIP_TCPLISTENING
 			|| A->arp_table[i].TCPState == UI_AXIP_TCPCONNECTED)
-			n++;
-	return n;
+			a->tcp_open++;
 }
 
-static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
+static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap, const char **evidence)
 {
 	struct TNCINFO *TNC = port_tnc(P);
 	struct AXIPPORTINFO *A = TNC ? NULL : port_axip(P);
@@ -1252,15 +1267,26 @@ static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
 	NPASYINFO K;
 	struct ui_kiss_link k;
 
+	*evidence = NULL;
+	/* STOPPORT sets PortStopped on any port with a stop routine
+	   (Cmd.c:5983-5988), and on a serial KISS port (Cmd.c:6022-6023). The
+	   node's own PORTS command and /api/ports read it before anything else
+	   (Cmd.c:1753, nodeapi.c:414). */
+	if (P->PortStopped)
+	{
+		snprintf(detail, cap, "port stopped");
+		return "down";
+	}
 	if (TNC && TNC->Hardware == H_VARA)
 	{
 		snprintf(detail, cap, TNC->CONNECTED ? "connected to VARA modem" : "VARA modem not connected");
-		return TNC->CONNECTED ? "linked" : "down";
+		return TNC->CONNECTED ? linked_by("link", evidence) : "down";
 	}
 	if (A)
 	{
 		time_t heard[MAX_ENTRIES];
-		int i, n = A->arp_table_len, sockets, unbound;
+		struct ui_axip_link a;
+		int i, n = A->arp_table_len;
 
 		if (n < 0)
 			n = 0;
@@ -1269,8 +1295,11 @@ static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
 		/* arp_table_entry.LastHeard, set on each packet from the peer (bpqaxip.c:2628) */
 		for (i = 0; i < n; i++)
 			heard[i] = A->arp_table[i].LastHeard;
-		sockets = axip_sockets(A, &unbound);
-		return uiapi_axip_link(sockets, unbound, heard, n, time(NULL), detail, cap);
+		memset(&a, 0, sizeof(a));
+		axip_sockets(A, &a);
+		a.heard = heard;
+		a.n = n;
+		return uiapi_axip_link(&a, time(NULL), detail, cap, evidence);
 	}
 	if (P->PORTTYPE == 0)
 	{
@@ -1280,11 +1309,13 @@ static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
 		   until a client connects, kiss.c:2134-2145), "UDP" for KISS over UDP,
 		   and idComDev for a serial device. idComDev is 0 when the open failed
 		   (kiss.c:485-490), after a read error closes it (kiss.c:553-558,
-		   612-616) and until the reopen every 30 s succeeds (kiss.c:535-545). */
+		   612-616) and until the reopen every 30 s succeeds (kiss.c:535-545).
+		   STOPPORT sets the first port's flag only, so a later port of a
+		   multidrop set reads it from there. */
 		K = port_kiss(&F);
 		memset(&k, 0, sizeof(k));
 		k.have = K != NULL;
-		k.stopped = P->PortStopped || F->PortStopped;
+		k.stopped = F->PortStopped;
 		k.ip = F->PORTIPADDR.s_addr != 0 || F->KISSSLAVE;
 		k.tcp = F->KISSTCP;
 		k.slave = F->KISSSLAVE;
@@ -1293,7 +1324,7 @@ static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
 			k.connected = K->Connected;
 			k.open = K->idComDev != 0;
 		}
-		return uiapi_kiss_link(&k, detail, cap);
+		return uiapi_kiss_link(&k, detail, cap, evidence);
 	}
 	snprintf(detail, cap, "driver reports no link state");
 	return "unknown";
@@ -1303,8 +1334,8 @@ int uiapi_api_links(char *response, char *token, char *param, int Local)
 {
 	struct jbuf b;
 	struct PORTCONTROL *P;
-	char detail[64];
-	const char *state;
+	char detail[160];
+	const char *state, *evidence;
 	int n;
 
 	jb_open(&b, response);
@@ -1313,10 +1344,14 @@ int uiapi_api_links(char *response, char *token, char *param, int Local)
 	{
 		size_t mark = b.len;
 
-		state = link_state(P, detail, sizeof(detail));
+		state = link_state(P, detail, sizeof(detail), &evidence);
 		jb_printf(&b, "%s{\"number\":%d,\"state\":\"%s\",\"detail\":", n ? "," : "", P->PORTNUMBER, state);
 		jb_str(&b, detail, sizeof(detail));
-		jb_printf(&b, "}");
+		/* added field: an overlay that ignores it reads the entry as before */
+		if (evidence)
+			jb_printf(&b, ",\"evidence\":\"%s\"}", evidence);
+		else
+			jb_printf(&b, ",\"evidence\":null}");
 		if (!jb_elem_fits(&b, mark))
 			break;
 	}

@@ -587,76 +587,130 @@ static void test_events_reply_needs_sysop(void)
 	passed++;
 }
 
+/* evidence is a string or NULL */
+static int ev_is(const char *ev, const char *want)
+{
+	return want ? ev && strcmp(ev, want) == 0 : ev == NULL;
+}
+
+#define KL(k, st, det, ev) do { const char *e_ = "x"; \
+	assert(strcmp(uiapi_kiss_link(&(k), d, sizeof d, &e_), st) == 0); \
+	assert(strcmp(d, det) == 0); assert(ev_is(e_, ev)); } while (0)
+
 static void test_kiss_link_serial(void)
 {
 	struct ui_kiss_link k = {0};
-	char d[64];
+	char d[160];
 
 	k.have = 1;
-	k.open = 1;
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "linked") == 0);
-	assert(strcmp(d, "serial device open") == 0);
+	k.open = 1;		/* only a device held open: evidence "device" */
+	KL(k, "linked", "serial device open", "device");
 	k.open = 0;		/* open failed, unplugged, or reopen pending */
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
-	assert(strcmp(d, "serial device not open") == 0);
+	KL(k, "down", "serial device not open", NULL);
 	k.stopped = 1;
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
-	assert(strcmp(d, "port stopped") == 0);
+	KL(k, "down", "port stopped", NULL);
 	k.have = 0;		/* no device record: the node reports nothing */
 	k.stopped = 0;
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "unknown") == 0);
-	assert(strcmp(d, "driver reports no link state") == 0);
+	KL(k, "unknown", "driver reports no link state", NULL);
 	passed++;
 }
 
 static void test_kiss_link_tcp_udp_slave(void)
 {
 	struct ui_kiss_link k = {0};
-	char d[64];
+	char d[160];
 
 	k.have = 1;
 	k.ip = k.tcp = 1;
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
-	assert(strcmp(d, "KISS TCP not connected") == 0);
-	k.connected = 1;
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "linked") == 0);
-	assert(strcmp(d, "KISS TCP connected") == 0);
+	KL(k, "down", "KISS TCP not connected", NULL);
+	k.connected = 1;	/* the node saw the TCP connection: evidence "link" */
+	KL(k, "linked", "KISS TCP connected", "link");
 	k.open = 1;		/* a TCP port's idComDev says nothing */
 	k.connected = 0;
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
+	KL(k, "down", "KISS TCP not connected", NULL);
 
 	k.slave = 1;		/* KISSSLAVE: the node listens for a client */
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
-	assert(strcmp(d, "KISS TCP listening, no client") == 0);
+	KL(k, "down", "KISS TCP listening, no client", NULL);
 	k.connected = 1;
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "linked") == 0);
-	assert(strcmp(d, "KISS TCP client connected") == 0);
+	KL(k, "linked", "KISS TCP client connected", "link");
 
 	k.slave = k.tcp = 0;	/* KISS over UDP: no link state in the node */
-	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "unknown") == 0);
-	assert(strcmp(d, "KISS over UDP reports no link state") == 0);
+	KL(k, "unknown", "KISS over UDP reports no link state", NULL);
 	passed++;
 }
+
+#define AL(a, st, det, ev) do { const char *e_ = "x"; \
+	assert(strcmp(uiapi_axip_link(&(a), now, d, sizeof d, &e_), st) == 0); \
+	if (strcmp(d, det) != 0) { fprintf(stderr, "got  %s\nwant %s\n", d, det); assert(0); } \
+	assert(ev_is(e_, ev)); } while (0)
 
 static void test_axip_link(void)
 {
 	time_t now = T0 + 7200;
 	time_t heard[3] = { now - 10, now - 3600, now - 3601 };
 	time_t never[1] = { 0 };
-	char d[64];
+	struct ui_axip_link a = {0};
+	char d[160];
 
-	assert(strcmp(uiapi_axip_link(0, 0, heard, 3, now, d, sizeof d), "down") == 0);
-	assert(strcmp(d, "AXIP socket not open") == 0);
-	/* within the hour counts, as the node's AXIP page (HTTPcode.c) has it */
-	assert(strcmp(uiapi_axip_link(1, 0, heard, 3, now, d, sizeof d), "linked") == 0);
-	assert(strcmp(d, "socket open, 2 of 3 peers heard in the last hour") == 0);
-	assert(strcmp(uiapi_axip_link(2, 0, never, 1, now, d, sizeof d), "linked") == 0);
-	assert(strcmp(d, "socket open, 0 of 1 peers heard in the last hour") == 0);
-	assert(strcmp(uiapi_axip_link(1, 0, NULL, 0, now, d, sizeof d), "linked") == 0);
-	assert(strcmp(d, "socket open, no peers mapped") == 0);
-	/* a configured UDP port the driver could not bind is down, whatever else is open */
-	assert(strcmp(uiapi_axip_link(2, 10093, heard, 3, now, d, sizeof d), "down") == 0);
-	assert(strcmp(d, "AXIP UDP 10093 not bound") == 0);
+	AL(a, "down", "AXIP socket not open", NULL);
+	/* one UDP port: today's wording; within the hour counts, as HTTPcode.c:4289 */
+	a.udp_n = a.udp_bound = 1;
+	a.heard = heard;
+	a.n = 3;
+	AL(a, "linked", "socket open, 2 of 3 peers heard in the last hour", "socket");
+	a.heard = never;
+	a.n = 1;
+	AL(a, "linked", "socket open, 0 of 1 peers heard in the last hour", "socket");
+	a.heard = NULL;
+	a.n = 0;
+	AL(a, "linked", "socket open, no peers mapped", "socket");
+	a.udp_bound = 0;
+	a.udp_unbound = 10093;
+	a.tcp_open = 1;		/* the one UDP port unbound is down, whatever else is open */
+	AL(a, "down", "AXIP UDP 10093 not bound", NULL);
+	a.tcp_open = 0;
+	passed++;
+}
+
+static void test_axip_link_several_udp(void)
+{
+	time_t now = T0 + 7200;
+	time_t heard[1] = { now - 10 };
+	struct ui_axip_link a = {0};
+	char d[160];
+
+	a.heard = heard;
+	a.n = 1;
+	a.udp_n = 3;
+	a.udp_bound = 2;
+	a.udp_unbound = 10094;	/* one of several unbound: still linked, and said */
+	AL(a, "linked", "2 of 3 UDP ports bound, 1 of 1 peers heard in the last hour", "socket");
+	a.udp_bound = 3;
+	a.udp_unbound = 0;
+	AL(a, "linked", "3 of 3 UDP ports bound, 1 of 1 peers heard in the last hour", "socket");
+	a.udp_bound = 0;	/* down only when none is bound */
+	a.udp_unbound = 10093;
+	AL(a, "down", "none of 3 AXIP UDP ports bound", NULL);
+	passed++;
+}
+
+static void test_axip_link_raw_socket(void)
+{
+	time_t now = T0 + 7200;
+	time_t heard[1] = { now - 10 };
+	struct ui_axip_link a = {0};
+	char d[160];
+
+	/* raw IP 93 only: its bind cannot be checked, and the detail says so */
+	a.raw_open = 1;
+	a.heard = heard;
+	a.n = 1;
+	AL(a, "linked", "socket open, 1 of 1 peers heard in the last hour, raw IP socket bind not checked", "socket");
+	a.udp_n = 2;
+	a.udp_bound = 2;
+	AL(a, "linked", "2 of 2 UDP ports bound, 1 of 1 peers heard in the last hour, raw IP socket bind not checked", "socket");
+	a.udp_bound = 0;	/* every UDP port unbound is down even with the raw socket open */
+	AL(a, "down", "none of 2 AXIP UDP ports bound", NULL);
 	passed++;
 }
 
@@ -689,6 +743,8 @@ int main(void)
 	test_kiss_link_serial();
 	test_kiss_link_tcp_udp_slave();
 	test_axip_link();
+	test_axip_link_several_udp();
+	test_axip_link_raw_socket();
 
 	unlink(evlog);
 	snprintf(path, sizeof path, "%s/uiapi-counters.dat", dir);

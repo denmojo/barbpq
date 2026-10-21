@@ -56,7 +56,7 @@ static char resp[250000];
 /* The one port's entry in a /api/ui/links reply */
 static const char *links_for(int n)
 {
-	static char want[64], entry[256];
+	static char want[64], entry[512];
 	char *p, *e;
 
 	uiapi_api_links(resp, NULL, "", 1);
@@ -70,17 +70,33 @@ static const char *links_for(int n)
 	return entry;
 }
 
-static void expect(int n, const char *state, const char *detail)
+/* evidence NULL expects "evidence":null */
+static void expect_ev(int n, const char *state, const char *detail, const char *evidence)
 {
-	char want[256];
+	char want[512], ev[32];
 	const char *got = links_for(n);
 
-	snprintf(want, sizeof want, "{\"number\":%d,\"state\":\"%s\",\"detail\":\"%s\"}", n, state, detail);
+	if (evidence)
+		snprintf(ev, sizeof ev, "\"%s\"", evidence);
+	else
+		snprintf(ev, sizeof ev, "null");
+	snprintf(want, sizeof want, "{\"number\":%d,\"state\":\"%s\",\"detail\":\"%s\",\"evidence\":%s}",
+		n, state, detail, ev);
 	if (strcmp(got, want) != 0)
 	{
 		fprintf(stderr, "port %d: got %s\n          want %s\n", n, got, want);
 		assert(0);
 	}
+}
+
+/* linked ports carry the evidence their driver gives; others null */
+static void expect(int n, const char *state, const char *detail)
+{
+	const char *ev = NULL;
+
+	if (strcmp(state, "linked") == 0)
+		ev = n == 4 ? "socket" : n == 7 ? "link" : n == 6 ? "link" : "device";
+	expect_ev(n, state, detail, ev);
 }
 
 /* A UDP socket bound to 127.0.0.1 on a port the kernel picks; returns the port */
@@ -101,7 +117,8 @@ static int bound_udp(int *fd)
 
 static struct KISSINFO kser, kdrop, kslave;
 static ASYINFO aser, aslave;
-static struct _EXTPORTDATA eax;
+static struct _EXTPORTDATA eax, evara;
+static struct TNCINFO *tvara;
 static struct AXIPPORTINFO *ax;
 
 static void setup(void)
@@ -126,10 +143,19 @@ static void setup(void)
 	assert(ax);
 	Portlist[4] = ax;
 
+	/* port 7: VARA, an external port with a TNCINFO record */
+	evara.PORTCONTROL.PORTNUMBER = 7;
+	evara.PORTCONTROL.PORTTYPE = 0x10;
+	tvara = calloc(1, sizeof *tvara);
+	assert(tvara);
+	tvara->Hardware = H_VARA;
+	TNCInfo[7] = tvara;
+
 	PORTTABLE = &kser.PORT;
 	kser.PORT.PORTPOINTER = &kdrop.PORT;
 	kdrop.PORT.PORTPOINTER = &eax.PORTCONTROL;
 	eax.PORTCONTROL.PORTPOINTER = &kslave.PORT;
+	kslave.PORT.PORTPOINTER = &evara.PORTCONTROL;
 }
 
 static void test_serial_kiss_fields(void)
@@ -244,6 +270,71 @@ static void test_axip_only_through_portlist(void)
 	passed++;
 }
 
+static void test_stopped_any_driver(void)
+{
+	int fd, port;
+
+	tvara->CONNECTED = 1;
+	expect(7, "linked", "connected to VARA modem");
+	/* STOPPORT sets PortStopped on any port with a stop routine (Cmd.c:5983-5988) */
+	evara.PORTCONTROL.PortStopped = 1;
+	expect(7, "down", "port stopped");
+	evara.PORTCONTROL.PortStopped = 0;
+	tvara->CONNECTED = 0;
+	expect(7, "down", "VARA modem not connected");
+
+	port = bound_udp(&fd);
+	ax->NumberofUDPPorts = 1;
+	ax->udpsock[0] = fd;
+	ax->udpport[0] = port;
+	expect(4, "linked", "socket open, no peers mapped");
+	eax.PORTCONTROL.PortStopped = 1;
+	expect(4, "down", "port stopped");
+	eax.PORTCONTROL.PortStopped = 0;
+	kslave.PORT.PortStopped = 1;
+	expect(6, "down", "port stopped");
+	kslave.PORT.PortStopped = 0;
+	close(fd);
+	ax->NumberofUDPPorts = 0;
+	passed++;
+}
+
+static void test_axip_several_udp_and_raw(void)
+{
+	int fd1, fd2, p1, p2, raw;
+	char d[160];
+
+	p1 = bound_udp(&fd1);
+	p2 = bound_udp(&fd2);
+	ax->NumberofUDPPorts = 3;
+	ax->udpsock[0] = fd1;
+	ax->udpport[0] = p1;
+	ax->udpsock[1] = fd2;
+	ax->udpport[1] = p2;
+	ax->udpsock[2] = fd2;		/* a third configured port nothing is bound to */
+	ax->udpport[2] = p2 == 65535 ? 1 : p2 + 1;
+	expect(4, "linked", "2 of 3 UDP ports bound, no peers mapped");
+	ax->udpport[0] = ax->udpport[2];
+	ax->udpport[1] = ax->udpport[2];
+	expect(4, "down", "none of 3 AXIP UDP ports bound");
+
+	/* the raw IP 93 socket: open is all there is, and the detail says so */
+	ax->NumberofUDPPorts = 0;
+	raw = socket(AF_INET, SOCK_DGRAM, 0);	/* stands in for the raw socket's number */
+	assert(raw > 0);
+	ax->needip = 1;
+	ax->sock = raw;
+	expect(4, "linked", "socket open, no peers mapped, raw IP socket bind not checked");
+	ax->needip = 0;
+	expect(4, "down", "AXIP socket not open");
+	ax->sock = 0;
+	close(raw);
+	close(fd1);
+	close(fd2);
+	(void)d;
+	passed++;
+}
+
 int main(void)
 {
 	setup();
@@ -252,6 +343,8 @@ int main(void)
 	test_axip_udp_bind();
 	test_axip_tcp_maps_and_heard();
 	test_axip_only_through_portlist();
+	test_stopped_any_driver();
+	test_axip_several_udp_and_raw();
 	printf("uiapi links over node structures: %d passed\n", passed);
 	return 0;
 }

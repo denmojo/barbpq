@@ -80,9 +80,14 @@ void uiapi_set_sysop(int signed_in);
    401 reply with a JSON body for anyone else. Returns the length. */
 int uiapi_events_reply(char *response, size_t cap, const char *param, int sysop);
 
-/* Link state of a KISS port (PORTTYPE 0), from the same fields of its
-   device's first port that the node's own PORTS command reads (Cmd.c:1753-1806).
-   Returns "linked", "down" or "unknown" and puts the reason in detail. */
+/* Link-state deciders. Each returns "linked", "down" or "unknown", puts the
+   reason in detail, and sets *evidence for a linked port to what the node
+   saw: "link" (a connection it observed: VARA, KISS TCP), "device" (only a
+   device held open: serial KISS, which says nothing of the TNC answering) or
+   "socket" (AXIP sockets open). *evidence is NULL for any other state. */
+
+/* A KISS port (PORTTYPE 0), from the same fields of its device's first port
+   that the node's own PORTS command reads (Cmd.c:1753-1806). */
 struct ui_kiss_link
 {
 	int have;	/* KISSInfo[] holds a device record for the port */
@@ -93,16 +98,27 @@ struct ui_kiss_link
 	int connected;	/* ASYINFO.Connected (TCP) */
 	int open;	/* ASYINFO.idComDev != 0 (serial device open) */
 };
-const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t cap);
+const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t cap,
+	const char **evidence);
 
-/* Link state of a BPQAXIP port. sockets is the count of the driver's sockets
-   that are open (and bound to their configured port, for UDP); unbound_udp
-   is a configured UDP port with no socket bound to it (0 = none); heard holds
-   each MAP entry's LastHeard (0 = never). "down" when a UDP port is unbound
-   or no socket is open, else "linked"; detail counts the entries heard within
-   the hour, the node's own AXIP Up test (HTTPcode.c:4289). */
-const char *uiapi_axip_link(int sockets, int unbound_udp, const time_t *heard, int n,
-	time_t now, char *detail, size_t cap);
+/* A BPQAXIP port. "down" when UDP ports are configured and none is bound to
+   its port, or when no socket is open at all; else "linked". With several
+   UDP ports the detail leads with how many are bound; it then counts the MAP
+   entries heard within the hour, the node's own AXIP Up test
+   (HTTPcode.c:4289), and notes the raw IP socket, whose bind cannot be
+   checked. */
+struct ui_axip_link
+{
+	int raw_open;		/* the raw IP 93 socket is open (needip) */
+	int udp_n;		/* configured UDP ports */
+	int udp_bound;		/* of those, bound to their configured port */
+	int udp_unbound;	/* the first configured UDP port not bound (0 = none) */
+	int tcp_open;		/* TCP maps connected or listening */
+	const time_t *heard;	/* each MAP entry's LastHeard (0 = never) */
+	int n;			/* MAP entries */
+};
+const char *uiapi_axip_link(const struct ui_axip_link *a, time_t now, char *detail, size_t cap,
+	const char **evidence);
 
 /* /api/ui handlers for nodeapi.c APIList */
 int uiapi_api_station(char *response, char *token, char *param, int Local);
