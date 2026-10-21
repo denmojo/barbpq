@@ -59,8 +59,7 @@ run_tests() {
 
 next_steps() {
   step "merged $(upver HEAD^1) -> $(upver HEAD); nothing pushed"
-  echo "next: KEEP_DOCKER=1 scripts/release.sh, try it on staging, then on a yes:"
-  echo "  git push origin $BR:main"
+  echo "next: scripts/release.sh, try the bundle on staging, then push $BR"
   echo "to throw the merge away instead: git reset --hard HEAD^1"
 }
 

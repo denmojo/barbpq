@@ -23,6 +23,9 @@ if [ -n "$(git status --porcelain)" ]; then
   COMMIT="$COMMIT-dirty"
 fi
 
+step "docs check"
+scripts/check-docs.sh
+
 step "sanitizer tests"
 python3 -I -m pytest -q scripts/test_sanitize.py
 
