@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+   Copyright (C) 2026 Dennis M */
+
 /* uiapi: read-only data for the web UI: counter ring, event log, CMS state, JSON handlers. */
 
 #ifndef UIAPI_H

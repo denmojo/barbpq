@@ -2,9 +2,11 @@
 //  - only .js and .css under ui/ (other types go out as text/html)
 //  - no path containing "htm" may hold "##" (template substitution)
 //  - index.html is copied to indexnoaprs.html; no NodeMenu.html
-import { copyFileSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+//  - every ui/*.js starts with the third-party license banner (notices.mjs)
+import { copyFileSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { noticeBanner } from './notices.mjs';
 
 function walk(dir) {
   const out = [];
@@ -35,6 +37,13 @@ export function finishDist(dist) {
   if (problems.length) throw new Error('dist is not servable by linbpq:\n' + problems.join('\n'));
 
   copyFileSync(join(dist, 'index.html'), join(dist, 'indexnoaprs.html'));
+
+  const banner = noticeBanner();
+  for (const f of files.filter((f) => /^ui\/[^/]+\.js$/.test(f))) {
+    const p = join(dist, f);
+    const body = readFileSync(p, 'utf8');
+    if (!body.startsWith(banner)) writeFileSync(p, banner + body);
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

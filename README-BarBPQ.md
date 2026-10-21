@@ -42,22 +42,34 @@ These steps assume linbpq runs as an ordinary user from `/usr/local/bin/linbpq`,
 2. Keep a copy of the current binary. `rollback.sh` restores from it.
 
    ```bash
-   cp -p /usr/local/bin/linbpq ~/linbpq-6.0.26.1.bak
+   [ -e ~/linbpq-6.0.26.1.bak ] || cp -p /usr/local/bin/linbpq ~/linbpq-6.0.26.1.bak
    ```
 
-3. Record whether the UI directories already exist. A rollback reads this record and removes only what the install added. Then copy the UI in:
+3. Record whether the UI directories already exist, in `~/barbpq/install-state`. A rollback reads this record and removes only what the install added, and a re-run never erases a recorded "created". Then copy the UI in:
 
    ```bash
-   { [ -d ~/HTML ] && echo html_created=0 || echo html_created=1
-     [ -d ~/HTML/ui ] && echo ui_created=0 || echo ui_created=1; } > install-state
+   ./rollback.sh --record-install-state
    mkdir -p ~/HTML && cp -R HTML/. ~/HTML/
    ```
 
-4. Stop linbpq, replace the binary, and start it again in its tmux session. A running binary cannot be overwritten. If `/usr/local/bin` is not writable by the node's user, the `cp` needs `sudo`.
+4. Replace the binary and restart linbpq in its tmux session. Run this from a shell of its own (an SSH session), never inside the tmux pane that runs linbpq. Moving into `/usr/local/bin` needs write access to the directory; without it, set `S=sudo` (otherwise `S=`) and run `sudo -v` first. The new binary is staged beside the old one and moved over it, so the installed file is never half-written.
 
    ```bash
-   pkill -TERM -x linbpq        # wait until `pgrep -x linbpq` prints nothing
-   cp linbpq /usr/local/bin/linbpq
+   $S cp linbpq /usr/local/bin/linbpq.install-tmp
+   cmp linbpq /usr/local/bin/linbpq.install-tmp && echo "staged copy matches"
+   $S chmod --reference=/usr/local/bin/linbpq /usr/local/bin/linbpq.install-tmp
+   $S chown --reference=/usr/local/bin/linbpq /usr/local/bin/linbpq.install-tmp
+
+   pkill -TERM -x linbpq
+   for i in $(seq 1 30); do pgrep -x linbpq >/dev/null || break; sleep 1; done
+   if pgrep -x linbpq >/dev/null; then pkill -KILL -x linbpq; sleep 3; fi
+   pgrep -a -x linbpq && echo "STILL RUNNING: stop here" || echo stopped
+   ```
+
+   On `STILL RUNNING`, stop: remove the staged file and move nothing. Otherwise:
+
+   ```bash
+   $S mv -f /usr/local/bin/linbpq.install-tmp /usr/local/bin/linbpq
    tmux send-keys -t linbpq 'cd ~ && /usr/local/bin/linbpq' Enter
    ```
 
@@ -65,7 +77,7 @@ Once linbpq is back, the new home page answers at the node's web port (for examp
 
 ## Rolling back
 
-Run `rollback.sh` on the node from the bundle directory:
+Run `rollback.sh` on the node from the bundle directory, again from a shell of its own. Its default paths are those of the node it was written for (user `<user>`); set the `BARBPQ_*` variables listed by `./rollback.sh --help` for any other layout.
 
 ```bash
 cd ~/barbpq/barbpq-6.0.26.1-1
@@ -73,7 +85,7 @@ cd ~/barbpq/barbpq-6.0.26.1-1
 ./rollback.sh
 ```
 
-It removes `index.html` and `indexnoaprs.html` from `~/HTML`. It also removes the `ui/` directory when the install created it. Then it stops linbpq, puts the backup binary back, and starts linbpq again in the `linbpq` tmux session. Running it a second time is safe. It always tries to leave linbpq running, even when a step fails. Environment variables can change the paths; `./rollback.sh --help` lists them.
+It removes `index.html` and `indexnoaprs.html` from `~/HTML`. It also removes the `ui/` directory when the install created it. Then it stages the backup beside the binary, stops linbpq, moves the backup into place, and starts linbpq again in the `linbpq` tmux session. Running it a second time is safe. It always tries to leave linbpq running, even when a step fails or it is interrupted.
 
 ## License
 
