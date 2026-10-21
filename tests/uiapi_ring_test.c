@@ -124,7 +124,7 @@ static void test_corrupt_file_starts_empty(void)
 	zero_totals(T0);
 
 	/* good magic, hostile lines */
-	write_file("BPQUIC2\nsince 0\n100 1 2\n", 26);
+	write_file("BPQUIC2\nsince 0\n100 1 2\n", strlen("BPQUIC2\nsince 0\n100 1 2\n"));
 	assert(uiapi_ring_load(path, T0) == -1);
 	zero_totals(T0);
 	{
