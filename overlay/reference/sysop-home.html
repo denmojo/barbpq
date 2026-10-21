@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SysOp home mockup</title>
+<style>
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --radius: 6px; --radius-md: 10px; --radius-lg: 14px; --radius-pill: 999px;
+  }
+  .theme-light {
+    --bg: #f4f5f7; --surface: #ffffff; --surface-2: #f0f2f5; --surface-3: #e6e9ee;
+    --border: #e1e4e8; --text: #1a1d21; --text-muted: #565e68; --text-faint: #8a919b;
+    --accent: #2563eb; --accent-weak: #e7eefc; --accent-text: #ffffff;
+    --danger: #d92d20; --warn: #b26a00; --ok: #16a34a;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 4px 12px rgba(16,24,40,.08);
+    --glass: rgba(255,255,255,.72);
+    --glow: radial-gradient(1200px 400px at 10% -10%, rgba(37,99,235,.10), transparent 60%);
+    --term-bg: #0e1013; --term-text: #c9d1d9;
+    color-scheme: light;
+  }
+  .theme-dark {
+    --bg: #0e1013; --surface: #16191d; --surface-2: #1d2126; --surface-3: #262b31;
+    --border: #2a2f36; --text: #e7e9ec; --text-muted: #a5adb7; --text-faint: #6e7681;
+    --accent: #6b9bff; --accent-weak: #1b2741; --accent-text: #0e1013;
+    --danger: #f2615a; --warn: #f0b34a; --ok: #3ccf6e;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 12px rgba(0,0,0,.35);
+    --glass: rgba(22,25,29,.72);
+    --glow: radial-gradient(1200px 400px at 10% -10%, rgba(107,155,255,.14), transparent 60%);
+    --term-bg: #090b0d; --term-text: #c9d1d9;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font-sans); background: #05070a; padding: 16px; }
+  .intro { color: #e7e9ec; font-size: 14px; margin: 0 0 12px; max-width: 1200px; }
+  .pane-label { font: 600 11px var(--font-sans); letter-spacing: .08em; text-transform: uppercase; color: #a5adb7; margin: 14px 0 6px; }
+  .app { background: var(--bg); background-image: var(--glow); color: var(--text); border-radius: 14px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.35); display: grid; grid-template-columns: 220px 1fr; grid-template-rows: auto 1fr; min-height: 820px; }
+
+  .hdr { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 10px 18px; background: var(--glass); backdrop-filter: blur(14px) saturate(1.4); border-bottom: 1px solid var(--border); }
+  .brand { display: flex; align-items: center; gap: 10px; width: 186px; }
+  .logo { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent), #7c3aed); color: #fff; font: 700 13px var(--font-mono); }
+  .brand-name { font-weight: 650; font-size: 15px; }
+  .brand-sub { font: 12px var(--font-mono); color: var(--text-muted); }
+  .search { flex: 1; max-width: 460px; height: 34px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--text-faint); font-size: 13px; }
+  .search kbd { margin-left: auto; font: 11px var(--font-mono); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; color: var(--text-muted); }
+  .util { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .iconbtn { width: 34px; height: 34px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); display: grid; place-items: center; }
+  .iconbtn svg { width: 16px; height: 16px; }
+  .me { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 4px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface); font: 600 13px var(--font-mono); }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #16a34a, #2563eb); display: grid; place-items: center; color: #fff; font: 700 10px var(--font-sans); }
+  .role { font: 600 10.5px var(--font-sans); color: var(--accent); background: var(--accent-weak); border-radius: var(--radius-pill); padding: 2px 7px; letter-spacing: .04em; }
+
+  aside { border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .navh { font: 600 10.5px var(--font-sans); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); padding: 12px 10px 6px; }
+  aside a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--radius-md); color: var(--text-muted); text-decoration: none; font-size: 13.5px; }
+  aside a svg { width: 16px; height: 16px; flex: none; }
+  aside a[aria-current] { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+  aside a .count { margin-left: auto; font: 600 11px var(--font-mono); color: var(--text-faint); }
+  aside a .count.warn { color: var(--warn); }
+
+  main { padding: 20px; min-width: 0; }
+  .titlebar { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+  .titlebar h1 { margin: 0; font-size: 20px; letter-spacing: -.015em; }
+  .titlebar .sub { color: var(--text-muted); font-size: 13px; }
+  .titlebar .actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn { height: 32px; padding: 0 12px; border-radius: var(--radius-pill); font: 600 12.5px var(--font-sans); border: 1px solid var(--border); background: var(--surface); color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
+  .btn.primary { background: var(--accent); border-color: transparent; color: var(--accent-text); }
+  .btn svg { width: 14px; height: 14px; }
+
+  /* health rail */
+  .health { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .hc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 14px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+  .hc::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--ok); }
+  .hc.warn::before { background: var(--warn); }
+  .hc .k { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+  .hc .k .d { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok) 22%, transparent); }
+  .hc.warn .k .d { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklab, var(--warn) 22%, transparent); }
+  .hc .v { font-weight: 650; font-size: 15px; margin-top: 6px; }
+  .hc .m { font: 11.5px var(--font-mono); color: var(--text-faint); margin-top: 3px; }
+
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; margin-top: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 16px; min-width: 0; }
+  .card h2 { margin: 0 0 12px; font-size: 13px; font-weight: 650; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
+  .card h2 .more { margin-left: auto; font-weight: 500; color: var(--accent); font-size: 12.5px; }
+  .span-7 { grid-column: span 7; } .span-5 { grid-column: span 5; } .span-12 { grid-column: span 12; }
+
+  /* route chain */
+  .route { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .hop { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; background: var(--surface-2); min-width: 150px; }
+  .hop .t { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-faint); }
+  .hop .n { font: 600 13.5px var(--font-mono); margin-top: 3px; }
+  .hop .s { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .hop.primary-hop { border-color: color-mix(in oklab, var(--accent) 45%, var(--border)); background: var(--accent-weak); }
+  .arrow { color: var(--text-faint); font: 12px var(--font-mono); text-align: center; }
+  .arrow b { display: block; font-size: 16px; color: var(--text-muted); }
+  .route-foot { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+  .note { font-size: 12.5px; color: var(--text-muted); }
+
+  .queue { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .q { background: var(--surface-2); border-radius: var(--radius-md); padding: 12px; }
+  .q .k { font-size: 11.5px; color: var(--text-muted); }
+  .q .v { font: 650 22px var(--font-mono); margin-top: 4px; }
+
+  .feed { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+  .feed li { display: grid; grid-template-columns: 52px 18px 1fr; gap: 8px; padding: 7px 0; border-top: 1px solid var(--border); align-items: center; }
+  .feed li:first-child { border-top: 0; }
+  .feed time { font: 12px var(--font-mono); color: var(--text-faint); }
+  .feed .ic { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); justify-self: center; }
+  .feed .ic.ok { background: var(--ok); } .feed .ic.warn { background: var(--warn); }
+  .feed code { font: 12px var(--font-mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+
+  .term { background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-lg); font: 12.5px/1.6 var(--font-mono); padding: 12px 14px; border: 1px solid var(--border); }
+  .term .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; color: #6e7681; font-family: var(--font-sans); font-size: 12px; }
+  .term .bar .pill { border: 1px solid #2a2f36; border-radius: 999px; padding: 2px 9px; color: #a5adb7; }
+  .term .ok { color: #3ccf6e; } .term .dim { color: #6e7681; } .term .cur { display: inline-block; width: 8px; height: 15px; background: #6b9bff; vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .term .cur { animation: none; } }
+  .sample { font: 600 10.5px var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--warn); }
+</style>
+</head>
+<body>
+<p class="intro"><b>SysOp home</b>, after signing in. Health check first, then mail and the forwarding route, recent changes, and a built-in console for path tests. Left sidebar replaces the top links because the signed-in side has more sections. Dark first, light below. Figures marked sample are made up.</p>
+<p class="pane-label">Dark</p><div class="app theme-dark" id="a"></div>
+<p class="pane-label">Light</p><div class="app theme-light" id="b"></div>
+
+<template id="page">
+  <header class="hdr">
+    <div class="brand"><div class="logo">EG</div><div><div class="brand-name">AD6DM-11</div><div class="brand-sub">EGNOD · CM98hj</div></div></div>
+    <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Jump to a setting, callsign, or command<kbd>⌘K</kbd></div>
+    <div class="util">
+      <span class="iconbtn" title="Switch theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
+      <span class="me"><span class="avatar">AD</span>AD6DM<span class="role">SYSOP</span></span>
+    </div>
+  </header>
+
+  <aside aria-label="SysOp navigation">
+    <a href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Health</a>
+    <div class="navh">Network</div>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12a7 7 0 0 1 14 0M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="12" r="1"/></svg>Ports<span class="count">3</span></a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h6"/></svg>Heard</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h5a3 3 0 0 1 3 3v7"/></svg>Links &amp; routes</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/></svg>Sessions<span class="count">0</span></a>
+    <div class="navh">Mail</div>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>Messages<span class="count">0</span></a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h12M12 6l6 6-6 6"/></svg>Forwarding<span class="count">1</span></a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>BBS users<span class="count">2</span></a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4"/></svg>Housekeeping</a>
+    <div class="navh">System</div>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M4 17h6M14 7h6M10 17h10"/><circle cx="14" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Settings</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 8 4 4-4 4M11 16h8"/></svg>Console</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l3 3v15H6z"/><path d="M9 11h6M9 15h6"/></svg>Logs</a>
+  </aside>
+
+  <main>
+    <div class="titlebar">
+      <h1>Health</h1><span class="sub">Checked 08:35 · every 30 s</span>
+      <div class="actions">
+        <span class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg>Restart node</span>
+        <span class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 5 5L20 7"/></svg>Test CMS now</span>
+      </div>
+    </div>
+
+    <section class="health" aria-label="Health checks">
+      <div class="hc"><div class="k"><span class="d"></span>VARA FM</div><div class="v">Linked</div><div class="m">TNC :8300 · v4.4.0</div></div>
+      <div class="hc"><div class="k"><span class="d"></span>Dire Wolf</div><div class="v">Linked</div><div class="m">KISS :8001 · TXTAIL 100 ms</div></div>
+      <div class="hc"><div class="k"><span class="d"></span>Winlink CMS</div><div class="v">Reachable</div><div class="m">last login 07:33</div></div>
+      <div class="hc"><div class="k"><span class="d"></span>BBS</div><div class="v">Running</div><div class="m">AD6DM · 2 users</div></div>
+      <div class="hc warn"><div class="k"><span class="d"></span>Store and forward</div><div class="v">Armed, untested</div><div class="m">drill on todo-66</div></div>
+    </section>
+
+    <div class="grid">
+      <section class="card span-7">
+        <h2>Outage route for held mail <a class="more" href="#">Edit script →</a></h2>
+        <div class="route">
+          <div class="hop"><div class="t">Held in</div><div class="n">BBS AD6DM</div><div class="s">when CMS is unreachable</div></div>
+          <div class="arrow"><b>→</b>first</div>
+          <div class="hop primary-hop"><div class="t">Try</div><div class="n">CMS via internet</div><div class="s">Telnet port 1</div></div>
+          <div class="arrow"><b>→</b>else</div>
+          <div class="hop"><div class="t">Try</div><div class="n">W6SAR-10</div><div class="s">Packet port 2 · on air</div></div>
+        </div>
+        <div class="route-foot">
+          <span class="btn">Dry run, CMS only</span>
+          <span class="note">Every 30 min while mail is held · sends new mail at once</span>
+        </div>
+      </section>
+
+      <section class="card span-5">
+        <h2>Mail <span class="sample">sample</span><a class="more" href="#">Messages →</a></h2>
+        <div class="queue">
+          <div class="q"><div class="k">Held for CMS</div><div class="v">0</div></div>
+          <div class="q"><div class="k">Sent today</div><div class="v">7</div></div>
+          <div class="q"><div class="k">Bounced</div><div class="v">0</div></div>
+        </div>
+      </section>
+
+      <section class="card span-5">
+        <h2>Recent changes</h2>
+        <ul class="feed">
+          <li><time>07:52</time><span class="ic ok"></span><span>Updated to <code>6.0.26.1</code></span></li>
+          <li><time>07:31</time><span class="ic"></span><span>CMS Pass set on BBS user <code>RMS</code></span></li>
+          <li><time>07:20</time><span class="ic"></span><span>Forwarding script for <code>RMS</code> saved</span></li>
+          <li><time>06:48</time><span class="ic"></span><span>Port 2 <code>TXTAIL</code> 30 → 100 ms</span></li>
+          <li><time>06:30</time><span class="ic warn"></span><span>Node restarted, 42 days up</span></li>
+        </ul>
+      </section>
+
+      <section class="card span-7">
+        <h2>Console <a class="more" href="#">Open full →</a></h2>
+        <div class="term">
+          <div class="bar"><span class="pill">Node</span><span class="pill">RMS</span><span class="pill">BBS</span><span style="margin-left:auto">port 1 · Telnet</span></div>
+          <div><span class="dim">AD6DM-11&gt;</span> RMS</div>
+          <div class="dim">Trying ec2-34-231-43-176.compute-1.amazonaws.com</div>
+          <div class="ok">*** AD6DM-11 Connected to CMS</div>
+          <div>[WL2K-5.0-B2FWIHJM$]</div>
+          <div>CMS&gt; <span class="cur"></span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</template>
+<script>
+  const t = document.getElementById('page').content;
+  document.getElementById('a').appendChild(t.cloneNode(true));
+  document.getElementById('b').appendChild(t.cloneNode(true));
+</script>
+</body>
+</html>
