@@ -434,7 +434,7 @@ static void test_forward_takes_next_cms_result(void)
 {
 	ev_reset();
 	uiapi_cms_result_at(1, T0 - 600);		/* the previous attempt worked */
-	uiapi_forward_event_at("RMS", "C 1 CMS", T0);
+	uiapi_forward_event_at("RMS", "C 1 CMS", 0, T0);
 	uiapi_events_json(evjson, sizeof evjson, 20);
 	assert(!strstr(evjson, "forward"));		/* undecided until the attempt ends */
 	uiapi_cms_result_at(0, T0 + 30);		/* this run's attempt fails */
@@ -442,7 +442,7 @@ static void test_forward_takes_next_cms_result(void)
 	assert(strstr(evjson, "\"kind\":\"forward\",\"detail\":{\"route\":\"RMS via port 1\",\"cmsReachable\":false}}]"));
 
 	/* the CMS recovers: the next run is logged reachable, not with the old failure */
-	uiapi_forward_event_at("RMS", "C 1 CMS", T0 + 1800);
+	uiapi_forward_event_at("RMS", "C 1 CMS", 0, T0 + 1800);
 	uiapi_cms_result_at(1, T0 + 1820);
 	uiapi_events_json(evjson, sizeof evjson, 2);
 	assert(strstr(evjson, "[{\"t\":\"") == evjson);
@@ -460,7 +460,7 @@ static void test_forward_without_cms_result_times_out_to_null(void)
 {
 	ev_reset();
 	uiapi_cms_result_at(0, T0 - 600);		/* stale state must not be used */
-	uiapi_forward_event_at("N0CALL", "C 3 N0CALL-1", T0);
+	uiapi_forward_event_at("N0CALL", "C 3 N0CALL-1", 0, T0);
 	uiapi_tick(T0 + 60);
 	uiapi_events_json(evjson, sizeof evjson, 20);
 	assert(!strstr(evjson, "forward"));
@@ -473,24 +473,86 @@ static void test_forward_without_cms_result_times_out_to_null(void)
 	assert(count_of(evjson, "\"kind\":\"forward\"") == 1);
 
 	/* a result arriving later than the wait, before any tick, is not taken either */
-	uiapi_forward_event_at("RMS", "C 1 CMS", T0 + 1000);
+	uiapi_forward_event_at("RMS", "C 1 CMS", 0, T0 + 1000);
 	uiapi_cms_result_at(0, T0 + 1200);
 	uiapi_events_json(evjson, sizeof evjson, 1);
 	assert(strstr(evjson, "\"route\":\"RMS via port 1\",\"cmsReachable\":null}}]"));
 
 	/* a second forward before any result closes the first as unknown */
-	uiapi_forward_event_at("AAA", "C 1 X", T0 + 2000);
-	uiapi_forward_event_at("BBB", "C 2 X", T0 + 2010);
+	uiapi_forward_event_at("AAA", "C 1 X", 0, T0 + 2000);
+	uiapi_forward_event_at("BBB", "C 2 X", 0, T0 + 2010);
 	uiapi_cms_result_at(1, T0 + 2020);
 	uiapi_events_json(evjson, sizeof evjson, 2);
 	assert(strstr(evjson, "\"route\":\"BBB via port 2\",\"cmsReachable\":true}},{"));
 	assert(strstr(evjson, "\"route\":\"AAA via port 1\",\"cmsReachable\":null}}]"));
 
 	/* shutdown writes a pending forward as unknown */
-	uiapi_forward_event_at("CCC", "C 1 X", T0 + 3000);
+	uiapi_forward_event_at("CCC", "C 1 X", 0, T0 + 3000);
 	uiapi_shutdown();
 	uiapi_events_json(evjson, sizeof evjson, 1);
 	assert(strstr(evjson, "\"route\":\"CCC via port 1\",\"cmsReachable\":null}}]"));
+	passed++;
+}
+
+/* A connect script's ELSE leg is the same forward session as the leg before
+   it: the session is one event, decided by the CMS result either leg gets. */
+static void test_forward_else_leg_is_same_session(void)
+{
+	ev_reset();
+	/* the CMS leg fails, the ELSE leg dials a radio partner: one decided event */
+	uiapi_forward_event_at("RMS", "ATTACH 1", 0, T0);
+	uiapi_cms_result_at(0, T0 + 5);
+	uiapi_forward_event_at("RMS", "ATTACH 1", 1, T0 + 7);
+	uiapi_tick(T0 + 300);
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\":\"forward\"") == 1);
+	assert(strstr(evjson, "\"route\":\"RMS via port 1\",\"cmsReachable\":false}}]"));
+
+	/* a fresh run after it, with no CMS result, is still logged unknown */
+	uiapi_forward_event_at("RMS", "ATTACH 1", 0, T0 + 1000);
+	uiapi_tick(T0 + 1121);
+	uiapi_events_json(evjson, sizeof evjson, 1);
+	assert(strstr(evjson, "\"route\":\"RMS via port 1\",\"cmsReachable\":null}}]"));
+
+	/* an undecided first leg stays pending through the ELSE leg, whose own
+	   CMS result then decides it; the wait restarts at the ELSE leg */
+	uiapi_forward_event_at("AAA", "C 3 X", 0, T0 + 2000);
+	uiapi_forward_event_at("AAA", "C 3 X", 1, T0 + 2100);
+	uiapi_tick(T0 + 2130);
+	uiapi_cms_result_at(1, T0 + 2150);
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\":\"forward\"") == 3);
+	assert(strstr(evjson, "\"route\":\"AAA via port 3\",\"cmsReachable\":true}},{"));
+
+	/* an ELSE leg for a partner whose run is not the pending one logs nothing
+	   and leaves the pending run alone */
+	uiapi_forward_event_at("BBB", "C 2 X", 0, T0 + 3000);
+	uiapi_forward_event_at("CCC", "C 4 X", 1, T0 + 3010);
+	uiapi_cms_result_at(0, T0 + 3020);
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\":\"forward\"") == 4);
+	assert(!strstr(evjson, "CCC"));
+	assert(strstr(evjson, "\"route\":\"BBB via port 2\",\"cmsReachable\":false}},{"));
+	passed++;
+}
+
+/* The Telnet port refusing a CMS connect because it holds the CMS down
+   ("Error - CMS Not Available") decides the pending run as unreachable. */
+static void test_forward_cms_refused_is_unreachable(void)
+{
+	ev_reset();
+	uiapi_cms_result_at(0, T0 - 600);
+	uiapi_forward_event_at("RMS", "ATTACH 1", 0, T0);
+	uiapi_cms_refused_at(T0 + 1);
+	uiapi_forward_event_at("RMS", "ATTACH 1", 1, T0 + 3);
+	uiapi_tick(T0 + 300);
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\":\"forward\"") == 1);
+	assert(strstr(evjson, "\"route\":\"RMS via port 1\",\"cmsReachable\":false}}]"));
+	/* with nothing pending a refusal logs nothing */
+	uiapi_cms_refused_at(T0 + 400);
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\":\"forward\"") == 1);
 	passed++;
 }
 
@@ -548,6 +610,8 @@ int main(void)
 	test_event_flat_validator();
 	test_forward_takes_next_cms_result();
 	test_forward_without_cms_result_times_out_to_null();
+	test_forward_else_leg_is_same_session();
+	test_forward_cms_refused_is_unreachable();
 	test_events_reply_needs_sysop();
 
 	unlink(evlog);

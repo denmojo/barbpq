@@ -765,7 +765,7 @@ void uiapi_cms_result(int ok)
 	uiapi_cms_result_at(ok, time(NULL));
 }
 
-void uiapi_forward_event_at(const char *bbs, const char *script, time_t now)
+void uiapi_forward_event_at(const char *bbs, const char *script, int alt, time_t now)
 {
 	char route[64];
 	int port = 0;
@@ -787,6 +787,19 @@ void uiapi_forward_event_at(const char *bbs, const char *script, time_t now)
 	else
 		snprintf(route, sizeof(route), "%.12s", bbs ? bbs : "");
 
+	if (alt)
+	{
+		/* An ELSE leg belongs to the session its first leg started, and the
+		   session is one event. Still waiting: the wait restarts, so a CMS
+		   result from this leg decides it. Already logged, or another
+		   partner's run waiting: nothing to do. */
+		fwd_expire(now, 0);
+		pthread_mutex_lock(&ev_lock);
+		if (fwd_pending.at && strcmp(fwd_pending.route, route) == 0)
+			fwd_pending.at = now ? now : 1;
+		pthread_mutex_unlock(&ev_lock);
+		return;
+	}
 	fwd_expire(now, 1);		/* an earlier run still waiting is logged as unknown */
 	pthread_mutex_lock(&ev_lock);
 	memcpy(fwd_pending.route, route, sizeof(route));
@@ -794,9 +807,23 @@ void uiapi_forward_event_at(const char *bbs, const char *script, time_t now)
 	pthread_mutex_unlock(&ev_lock);
 }
 
-void uiapi_forward_event(const char *bbs, const char *script)
+void uiapi_forward_event(const char *bbs, const char *script, int alt)
 {
-	uiapi_forward_event_at(bbs, script, time(NULL));
+	uiapi_forward_event_at(bbs, script, alt, time(NULL));
+}
+
+void uiapi_cms_refused_at(time_t now)
+{
+	char route[64];
+
+	fwd_expire(now, 0);
+	if (fwd_take(now, 1, route))
+		forward_log(route, 0, now);
+}
+
+void uiapi_cms_refused(void)
+{
+	uiapi_cms_refused_at(time(NULL));
 }
 
 /* ---- /api/ui/events: sysop only ---- */

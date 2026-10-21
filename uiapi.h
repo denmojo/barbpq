@@ -55,13 +55,22 @@ int uiapi_events_json(char *buf, size_t cap, int limit);
    from the first connect script line, never any other word of it. The
    "forward" event is written when the next CMS result arrives, carrying it
    as cmsReachable, or with cmsReachable null if none comes within 120 s
-   (checked by uiapi_tick), if another run starts first, or at shutdown. */
-void uiapi_forward_event(const char *bbs, const char *script);
-void uiapi_forward_event_at(const char *bbs, const char *script, time_t now);
+   (checked by uiapi_tick), if another run starts first, or at shutdown.
+   alt is 1 for a connect script's ELSE leg: it continues the run its first
+   leg started and logs no event of its own. */
+void uiapi_forward_event(const char *bbs, const char *script, int alt);
+void uiapi_forward_event_at(const char *bbs, const char *script, int alt, time_t now);
 
 /* Outcome of a CMS connect attempt (1 connected, 0 all servers failed) */
 void uiapi_cms_result(int ok);
 void uiapi_cms_result_at(int ok, time_t now);
+
+/* The Telnet port refused a CMS connect without trying it, because it holds
+   the CMS down ("Error - CMS Not Available"). A forward run waiting for its
+   CMS result is logged unreachable; the CMS state is left as it is, since no
+   attempt was made. */
+void uiapi_cms_refused(void);
+void uiapi_cms_refused_at(time_t now);
 
 /* The HTTP layer calls this before each /api request: 1 when the request
    carries a live node sysop session cookie. /api/ui/events reads it. */

@@ -2756,6 +2756,7 @@ nosocks:
 								return;
 							}
 					
+							if (TCP->CMS) uiapi_cms_refused(); // uiapi hook
 							buffptr->Len = sprintf(&buffptr->Data[0], "Error - CMS Not Available\r");
 							C_Q_ADD(&TNC->Streams[Stream].PACTORtoBPQ_Q, buffptr);
 							STREAM->NeedDisc = 10;

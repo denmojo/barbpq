@@ -8151,7 +8151,7 @@ BOOL ConnecttoBBS (struct UserInfo * user)
 			conn->UserPointer = user;
 
 			Logprintf(LOG_BBS, conn, '|', "Connecting to BBS %s", user->Call);
-			uiapi_forward_event(user->Call, ForwardingInfo->ConnectScript ? ForwardingInfo->ConnectScript[0] : NULL); // uiapi hook
+			uiapi_forward_event(user->Call, ForwardingInfo->ConnectScript ? ForwardingInfo->ConnectScript[0] : NULL, ForwardingInfo->ScriptIndex >= 0); // uiapi hook
 
 			ForwardingInfo->MoreLines = TRUE;
 			
