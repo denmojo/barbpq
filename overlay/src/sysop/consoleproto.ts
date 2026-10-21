@@ -103,8 +103,13 @@ export type ConsoleStatus = 'connecting' | 'open' | 'closed';
 
 export interface ConsoleConn {
   readonly status: ConsoleStatus;
-  /** Send one typed line. Throws when not connected, or for a line the node cannot take. */
-  send(line: string): void;
+  /**
+   * Send one typed line; `shown` is how notes name it (a masked password shows as stars).
+   * Throws when not connected, or for a line the node cannot take.
+   */
+  send(line: string, shown?: string): void;
+  /** Lines the connection could not deliver (echo timeout, close with lines queued). */
+  onNote(cb: (text: string) => void): () => void;
   /** Each complete output line. Returns an unsubscribe function. */
   onLine(cb: (line: string) => void): () => void;
   /** The unterminated tail after each frame ('' once it completes or a line is sent). */
@@ -113,6 +118,17 @@ export interface ConsoleConn {
   onStatus(cb: (status: ConsoleStatus, reason?: string) => void): () => void;
   close(reason?: string): void;
 }
+
+/**
+ * The node echoes while it handles a line, within a tick of reading it; 5 s allows for a busy
+ * node or a slow link and is still short enough that a stuck queue shows quickly.
+ */
+export const ECHO_TIMEOUT_MS = 5000;
+
+interface Line { frame: string; shown: string }
+
+const notSent = (ls: Line[], why: string): string =>
+  `${ls.map((l) => l.shown).join(', ')} ${ls.length === 1 ? 'was' : 'were'} not sent${why}`;
 
 function listeners<A extends unknown[]>() {
   const set = new Set<(...a: A) => void>();
@@ -127,18 +143,38 @@ export function openConsole(): ConsoleConn {
   const lines = listeners<[string]>();
   const partials = listeners<[string]>();
   const statuses = listeners<[ConsoleStatus, string | undefined]>();
+  const notes = listeners<[string]>();
   const splitter = new OutputSplitter();
   let status = 'connecting' as ConsoleStatus;
   let ws: WebSocket | null = null;
   // TelnetV6.c handles one WebSocket frame per recv() and drops the rest of the buffer
   // (InputLen = 0), so two frames that coalesce lose the second. Keep one line in flight: the
   // node's CRLF echo is sent while it handles the line, so after the echo the next may go.
-  let awaitingEcho = false;
-  const queue: string[] = [];
-  const write = (frame: string) => {
-    ws?.send(frame);
-    awaitingEcho = true;
+  let inFlight: Line | null = null;
+  let echoTimer: ReturnType<typeof setTimeout> | undefined;
+  const queue: Line[] = [];
+  const write = (l: Line) => {
+    ws?.send(l.frame);
+    inFlight = l;
+    clearTimeout(echoTimer);
+    echoTimer = setTimeout(onEchoTimeout, ECHO_TIMEOUT_MS);
   };
+  const echoed = () => {
+    clearTimeout(echoTimer);
+    inFlight = null;
+    const next = queue.shift();
+    if (next) write(next);
+  };
+  // No echo: the node may not have read the line. Report it and drop the queue rather than block
+  // the console for good; the socket stays open, so the sysop can type again.
+  function onEchoTimeout(): void {
+    const lost = inFlight;
+    inFlight = null;
+    const queued = queue.splice(0);
+    const parts = [`No echo from the node within ${ECHO_TIMEOUT_MS / 1000} s for ${lost?.shown ?? 'the last line'}: it may not have run`];
+    if (queued.length) parts.push(notSent(queued, ''));
+    notes.emit(parts.join('; '));
+  }
 
   const setStatus = (s: ConsoleStatus, reason?: string) => {
     status = s;
@@ -148,6 +184,10 @@ export function openConsole(): ConsoleConn {
   const finish = (reason: string) => {
     if (status === 'closed') return;
     stopWatch();
+    clearTimeout(echoTimer);
+    inFlight = null;
+    const queued = queue.splice(0);
+    if (queued.length) notes.emit(notSent(queued, ': the console closed'));
     const sock = ws;
     ws = null;
     if (sock) {
@@ -182,10 +222,8 @@ export function openConsole(): ConsoleConn {
       // Frames carry no tag: the first bare CRLF after a send is taken as its echo. A blank
       // output line that comes first is taken instead and the echo then shows as that blank
       // line, so the screen reads the same.
-      if (awaitingEcho && e.data === '\r\n') {
-        awaitingEcho = false;
-        const next = queue.shift();
-        if (next !== undefined) write(next);
+      if (inFlight && e.data === '\r\n') {
+        echoed();
         return;
       }
       for (const l of splitter.push(e.data)) lines.emit(l);
@@ -196,16 +234,17 @@ export function openConsole(): ConsoleConn {
 
   return {
     get status() { return status; },
-    send(line: string) {
+    send(line: string, shown = line) {
       if (status !== 'open' || !ws) throw new Error('The console is not connected');
-      const frame = encodeLine(line);
-      if (awaitingEcho) queue.push(frame);
-      else write(frame);
+      const l = { frame: encodeLine(line), shown };
+      if (inFlight) queue.push(l);
+      else write(l);
       splitter.clear();
       partials.emit('');
     },
     onLine: lines.add,
     onPartial: partials.add,
+    onNote: notes.add,
     onStatus: (cb) => statuses.add(cb),
     close: (reason = 'Closed') => finish(reason),
   };

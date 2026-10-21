@@ -3,7 +3,7 @@ import { NonLatin1Error, ParseError } from '../../data/http';
 import { NotAuthorizedError, sysop } from '../../data/session';
 import { route } from '../../app/router';
 import {
-  ControlCharError, encodeLine, LineTooLongError, MAX_LINE, openConsole, OutputSplitter, parseTermKey,
+  ControlCharError, ECHO_TIMEOUT_MS, encodeLine, LineTooLongError, MAX_LINE, openConsole, OutputSplitter, parseTermKey,
   pendingCommand, takePendingCommand, termSocketUrl, typeCommand, type ConsoleStatus,
 } from '../consoleproto';
 import { FakeWS, nodeTermDecode } from './fakews';
@@ -202,15 +202,43 @@ test('one line in flight: the node reads one frame per recv, so the next line wa
   conn.close();
 });
 
-test('a blank output line that arrives before the echo still shows as one blank line', async () => {
+
+test('no echo within the timeout: the in-flight and queued lines are reported, the queue clears, the socket stays', async () => {
   stubFetch({ '/Node/WebSockTerm.html': TERM });
   const { conn, ws } = await opened();
-  const lines: string[] = [];
-  conn.onLine((l) => lines.push(l));
+  const notes: string[] = [];
+  conn.onNote((n) => notes.push(n));
+  vi.useFakeTimers();
   conn.send('A');
-  ws.recv('\r\n'); // blank output from the poll, sent before the node read A
-  ws.recv('\r\n'); // the echo for A
-  ws.recv('reply\r\n');
-  expect(lines).toEqual(['', 'reply']);
+  conn.send('B');
+  conn.send('C');
+  vi.advanceTimersByTime(ECHO_TIMEOUT_MS - 1);
+  expect(notes).toEqual([]);
+  vi.advanceTimersByTime(1);
+  expect(notes).toHaveLength(1);
+  expect(notes[0]).toMatch(/A/);
+  expect(notes[0]).toMatch(/B, C were not sent/);
+  expect(ws.sent).toEqual(['A\r']);
+  expect(ws.closedByClient).toBe(false);
+  expect(conn.status).toBe('open');
+  conn.send('D'); // the queue is clear: the next line goes at once
+  expect(ws.sent).toEqual(['A\r', 'D\r']);
+  ws.recv('\r\n');
+  vi.advanceTimersByTime(ECHO_TIMEOUT_MS * 2);
+  expect(notes).toHaveLength(1);
+  vi.useRealTimers();
   conn.close();
+});
+
+test('closing with lines still queued reports them as not sent', async () => {
+  stubFetch({ '/Node/WebSockTerm.html': TERM });
+  const { conn, ws } = await opened();
+  const notes: string[] = [];
+  conn.onNote((n) => notes.push(n));
+  conn.send('A');
+  conn.send('B');
+  conn.send('C');
+  ws.serverClose('Session Timeout');
+  expect(notes).toEqual(['B, C were not sent: the console closed']);
+  expect(ws.sent).toEqual(['A\r']);
 });

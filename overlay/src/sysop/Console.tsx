@@ -72,7 +72,7 @@ export function Console() {
     if (!c || c.status !== 'open') return false;
     const before = prompt.current;
     try {
-      c.send(line);
+      c.send(line, masked ? MASK : line);
     } catch (e) {
       add({ kind: 'note', text: e instanceof Error ? e.message : String(e) });
       return false;
@@ -91,6 +91,7 @@ export function Console() {
     setReason(undefined);
     c.onLine((l) => add({ kind: 'out', text: l }));
     c.onPartial((p) => { prompt.current = p; setPartial(p); });
+    c.onNote((n) => { if (conn.current === c) add({ kind: 'note', text: n }); });
     c.onStatus((s, r) => {
       if (conn.current !== c) return;
       setStatus(s);
@@ -115,11 +116,16 @@ export function Console() {
     connect();
   };
 
-  // typeCommand while this screen is already open and connected: send at once.
+  // typeCommand while this screen is mounted: send at once if open; a closed console drops it
+  // so it cannot fire after a later Reconnect.
   useEffect(() => pendingCommand.subscribe((cmd) => {
-    if (cmd === null || conn.current?.status !== 'open') return;
+    const st = conn.current?.status;
+    // No connection yet (mounting) or one connecting: that attempt's open or close settles it.
+    if (cmd === null || st === undefined || st === 'connecting') return;
     const c = takePendingCommand();
-    if (c) sendLine(c);
+    if (!c) return;
+    if (st === 'open') sendLine(c);
+    else add({ kind: 'note', text: `${c} was not sent: the console is closed` });
   }), []);
 
   useEffect(() => {

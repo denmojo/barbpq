@@ -206,3 +206,37 @@ test('only a password word masks the input: a prompt ending in "Compass>" does n
   act(() => ws.recv('\r\nPass: '));
   expect(screen.getByLabelText('Command')).toHaveAttribute('type', 'password');
 });
+
+test('typeCommand while the console is closed is dropped, not sent after a later Reconnect', async () => {
+  render(<Console />);
+  const ws = await connected();
+  act(() => ws.serverClose('Session Timeout'));
+  await screen.findByRole('button', { name: 'Reconnect' });
+  act(() => typeCommand('USERS'));
+  expect(pendingCommand.value).toBeNull();
+  expect(screen.getByText(/USERS was not sent/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+  await waitFor(() => expect(FakeWS.all).toHaveLength(2));
+  act(() => FakeWS.last().open());
+  await screen.findByText('Connected');
+  expect(FakeWS.last().sent).toEqual([]);
+});
+
+test('typeCommand during a connect attempt that fails is dropped with that attempt', async () => {
+  render(<Console />);
+  await waitFor(() => expect(FakeWS.all).toHaveLength(1));
+  act(() => typeCommand('USERS'));
+  expect(pendingCommand.value).toBe('USERS');
+  act(() => FakeWS.last().serverClose('refused'));
+  expect(await screen.findByText(/USERS was not sent/)).toBeInTheDocument();
+  expect(pendingCommand.value).toBeNull();
+});
+
+test('queue notes from the connection show in the scrollback', async () => {
+  render(<Console />);
+  const ws = await connected();
+  fireEvent.click(screen.getByRole('button', { name: 'PORTS' }));
+  fireEvent.click(screen.getByRole('button', { name: 'USERS' }));
+  act(() => ws.serverClose('Session Timeout'));
+  expect(screen.getByRole('log', { name: 'Console output' })).toHaveTextContent('USERS was not sent: the console closed');
+});
