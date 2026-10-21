@@ -108,11 +108,12 @@ export async function submitForm(spec: FormSpec, values: Record<string, string>)
 }
 
 /**
- * Edit Config save body: `Msg=` + text + `&Save=`. The node's decoder reads only uppercase
- * %XX and '+' for space, so everything else is escaped; CRs are dropped (the node strips them).
+ * Edit Config save body: `Msg=` + text + `&Save=Save`, as the page's Save button sends it. The
+ * node's decoder reads only uppercase %XX and '+' for space, so everything else is escaped; CRs
+ * are dropped (the node strips them).
  */
 export function encodeCfgSave(text: string): Uint8Array {
-  return latin1Bytes(`Msg=${encodeLatin1Form(text.replace(/\r/g, ''))}&Save=`);
+  return latin1Bytes(`Msg=${encodeLatin1Form(text.replace(/\r/g, ''))}&Save=Save`);
 }
 
 export function cfgSaveTooLarge(body: Uint8Array): boolean {

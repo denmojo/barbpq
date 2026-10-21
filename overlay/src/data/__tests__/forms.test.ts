@@ -84,9 +84,9 @@ test('submitForm throws when the node answers please sign in', async () => {
   await expect(submitForm(spec, {})).rejects.toThrow(/please sign in/);
 });
 
-test('encodeCfgSave: Msg= prefix, &Save= suffix, uppercase hex, plus for space, CR dropped', () => {
+test('encodeCfgSave: Msg= prefix, &Save=Save suffix, uppercase hex, plus for space, CR dropped', () => {
   const body = new TextDecoder('latin1').decode(encodeCfgSave('A B\r\nC=1&x%é'));
-  expect(body).toBe('Msg=A+B%0AC%3D1%26x%25%E9&Save=');
+  expect(body).toBe('Msg=A+B%0AC%3D1%26x%25%E9&Save=Save');
 });
 
 test('cfgSaveTooLarge flags bodies over 99,000 bytes', () => {
@@ -147,7 +147,7 @@ test('saveConfig refuses over 99,000 bytes before any request', async () => {
   expect((err as CfgTooLargeError).bytes).toBeGreaterThan(99_000);
   expect(calls).toHaveLength(0);
   // 99,001 exactly
-  const text = 'x'.repeat(99_001 - 'Msg='.length - '&Save='.length);
+  const text = 'x'.repeat(99_001 - 'Msg='.length - '&Save=Save'.length);
   expect(encodeCfgSave(text).length).toBe(99_001);
   await expect(saveConfig(text)).rejects.toBeInstanceOf(CfgTooLargeError);
   expect(calls).toHaveLength(0);
@@ -166,7 +166,7 @@ test('saveConfig reads the form action then posts the body, retrying after sign-
   const { signIn } = await import('../session');
   await signIn('sysop', 'staging');
   await p;
-  expect(new TextDecoder('latin1').decode(posted)).toBe('Msg=A+B%0A&Save=');
+  expect(new TextDecoder('latin1').decode(posted)).toBe('Msg=A+B%0A&Save=Save');
   sysop.value = 'unknown';
 });
 

@@ -143,7 +143,7 @@ test('recent changes stops at 10 entries of the 200-event poll', async () => {
   expect(region.querySelector('time')).toHaveTextContent('09:59');
 });
 
-test.each(['messages', 'forwarding', 'bbsusers', 'housekeeping', 'settings', 'console', 'logs'] as const)(
+test.each(['messages', 'forwarding', 'bbsusers', 'housekeeping', 'console', 'logs'] as const)(
   'a screen not built yet (%s) shows Coming in this release and the footer', (r) => {
     route.value = r;
     const { container } = render(<SysopLayout />);

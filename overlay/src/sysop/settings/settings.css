@@ -1,0 +1,78 @@
+/* Settings: bpq32.cfg editor and forms. Colors come from the theme tokens only. */
+.title-actions { margin-left: auto; display: flex; gap: 8px; align-self: center; flex: none; }
+/* The public header turns .btn icon-only on phones; these carry text labels. */
+.title-actions .btn { flex: none; width: auto; padding: 0 14px; }
+.btn.small { height: 28px; width: auto; padding: 0 11px; font-size: 12.5px; }
+.title-actions .btn:disabled, .form-tbl .btn:disabled { opacity: .45; cursor: default; }
+
+.restart-banner { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 10px 14px; border-radius: var(--radius-md); font-size: 13.5px; font-weight: 600; color: var(--text); background: color-mix(in oklab, var(--warn) 14%, var(--surface)); border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent); }
+.settings-grid { margin-top: 0; }
+
+/* editor */
+.cfged { display: grid; grid-template-columns: 48px minmax(0, 1fr); height: max(360px, 58vh); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); overflow: hidden; }
+.cfg-gutter { overflow: hidden; border-right: 1px solid var(--border); background: var(--surface); color: var(--text-faint); font: 12px/20px var(--font-mono); text-align: right; user-select: none; }
+.cfg-gutter > div { padding: 10px 8px 10px 0; will-change: transform; }
+.cfg-gutter .gn { height: 20px; position: relative; }
+.cfg-gutter .gn.chg { color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.cfg-gutter .gn.error { color: var(--danger); font-weight: 700; }
+.cfg-gutter .gn.warning { color: var(--warn); font-weight: 700; }
+.cfg-area { position: relative; overflow: hidden; }
+.cfg-hl, .cfg-area textarea { margin: 0; padding: 10px 12px; font: 13px/20px var(--font-mono); tab-size: 8; white-space: pre; letter-spacing: 0; }
+.cfg-hl { position: absolute; top: 0; left: 0; min-width: 100%; color: var(--text); pointer-events: none; will-change: transform; }
+.cfg-hl .ln { height: 20px; margin: 0 -12px; padding: 0 12px; }
+.cfg-hl .ln.blk { background: color-mix(in oklab, var(--accent) 4%, transparent); }
+.cfg-hl .ln.chg { background: color-mix(in oklab, var(--accent) 16%, transparent); }
+.cfg-area textarea { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: transparent; color: transparent; caret-color: var(--text); overflow: auto; }
+.cfg-area textarea::selection { background: color-mix(in oklab, var(--accent) 35%, transparent); color: transparent; }
+.cfg-area:focus-within { box-shadow: inset 0 0 0 2px var(--accent); }
+.tk-comment { color: var(--text-faint); font-style: italic; }
+.tk-key { color: var(--accent); font-weight: 600; }
+.tk-drv { color: var(--text-muted); font-weight: 600; }
+.tk-port, .tk-endport { color: #7c3aed; font-weight: 700; }
+[data-theme="dark"] .tk-port, [data-theme="dark"] .tk-endport { color: #b794ff; }
+.tk-unk { color: var(--warn); font-weight: 600; text-decoration: underline wavy var(--warn); text-underline-offset: 3px; }
+.tk-text { color: var(--ok); }
+.tk-mark { color: var(--text-muted); font-weight: 700; }
+
+/* check */
+.cfg-check { margin-top: 12px; }
+.cfg-check-h { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.cfg-issues { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.cfg-issues li { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border-radius: var(--radius); background: var(--surface-2); }
+.cfg-issues .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
+.cfg-issues .error .dot { background: var(--danger); }
+.cfg-issues .warning .dot { background: var(--warn); }
+.cfg-issues .sev { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.cfg-issues .error .sev { color: var(--danger); }
+.cfg-issues .warning .sev { color: var(--warn); }
+.linkbtn { border: 0; padding: 0; background: none; color: var(--accent); font: 600 13px var(--font-mono); cursor: pointer; white-space: nowrap; }
+.linkbtn:hover { text-decoration: underline; }
+
+/* diff */
+.cfg-nochg { font-size: 13px; }
+.cfg-diff { list-style: none; margin: 0; padding: 0; font: 12.5px/20px var(--font-mono); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.cfg-diff li { display: grid; grid-template-columns: 48px 18px minmax(0, 1fr); }
+.cfg-diff .dn { text-align: right; padding-right: 8px; color: var(--text-faint); }
+.cfg-diff .sign { text-align: center; font-weight: 700; }
+.cfg-diff code { white-space: pre; overflow: hidden; text-overflow: ellipsis; font: inherit; }
+.cfg-diff .add { background: color-mix(in oklab, var(--ok) 12%, transparent); }
+.cfg-diff .add .sign { color: var(--ok); }
+.cfg-diff .del { background: color-mix(in oklab, var(--danger) 12%, transparent); }
+.cfg-diff .del .sign { color: var(--danger); }
+.cfg-diff .more { padding: 4px 12px; }
+
+/* forms */
+.form-hint { margin: -4px 0 12px; font-size: 13px; }
+.form-tbl td { white-space: normal; }
+.form-tbl input[type="text"], .form-tbl input[type="password"], .form-tbl input[type="number"], .form-tbl select { height: 30px; width: 100%; min-width: 90px; padding: 0 9px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: 13px var(--font-mono); }
+.form-tbl input.num { max-width: 110px; min-width: 70px; }
+.form-tbl input:focus-visible, .form-tbl select:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+.form-tbl input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+.form-tbl .c { text-align: center; }
+.form-tbl .new-row td { background: color-mix(in oklab, var(--accent) 4%, transparent); }
+.form-err { margin-top: 4px; font-size: 12px; color: var(--danger); white-space: normal; }
+
+@media (max-width: 700px) {
+  .title-actions { margin-left: 0; width: 100%; }
+  .cfged { grid-template-columns: 40px minmax(0, 1fr); height: 60vh; }
+}

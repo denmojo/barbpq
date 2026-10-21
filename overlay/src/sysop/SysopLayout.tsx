@@ -16,11 +16,15 @@ import { IconMenu, IconMoon, IconSearch, IconSignOut } from './icons';
 import { COMING, labelOf, NAV, type NavItem } from './nav';
 import { registerPaletteItems } from './palette';
 import { ShellContext, useShellPolls, type ShellData } from './shell';
+import { NodeSettings, useSettingsPalette } from './settings/NodeSettings';
+import { resetSettings } from './settings/draft';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const PALETTE_KEY = IS_MAC ? '⌘K' : 'Ctrl K';
 
 function doSignOut(): void {
+  // An explicit sign-out forgets the loaded config and any draft (an expired session keeps them).
+  resetSettings();
   signOut();
   navigate('overview');
 }
@@ -74,6 +78,7 @@ export function SysopLayout() {
   const openPalette = useCallback(() => setPalette(true), []);
   usePaletteHotkey(openPalette);
   usePaletteBase();
+  useSettingsPalette();
 
   const st = data.station.data;
   const call = st?.call;
@@ -136,7 +141,7 @@ export function SysopLayout() {
         <Sidebar current={r} data={data} open={menu} onPick={() => setMenu(false)} />
 
         <main class="sys-main">
-          {r === 'health' ? <Health /> : PublicScreen ? (
+          {r === 'health' ? <Health /> : r === 'settings' ? <NodeSettings /> : PublicScreen ? (
             <>
               <div class="titlebar"><h1>{labelOf(r)}</h1></div>
               <PublicScreen />
