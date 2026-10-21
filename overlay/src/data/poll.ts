@@ -64,3 +64,18 @@ export function usePoll<T>(fn: () => Promise<T>, everyMs: number, opts: PollOpti
 
   return state;
 }
+
+/** Call fn once when the component mounts, for values that do not change while the node runs. */
+export function useOnce<T>(fn: () => Promise<T>): Poll<T> {
+  const [state, setState] = useState<Poll<T>>({ data: undefined, error: undefined, stale: false });
+  const fnRef = useRef(fn);
+  useEffect(() => {
+    let alive = true;
+    fnRef.current().then(
+      (data) => { if (alive) setState({ data, error: undefined, stale: false }); },
+      (e: unknown) => { if (alive) setState({ data: undefined, error: e instanceof Error ? e : new Error(String(e)), stale: false }); },
+    );
+    return () => { alive = false; };
+  }, []);
+  return state;
+}

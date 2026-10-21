@@ -153,9 +153,20 @@ test.each(['messages', 'forwarding', 'bbsusers', 'housekeeping', 'settings', 'co
   });
 
 test('the sysop document title is the call from /api/info and the public name', async () => {
+  vi.mocked(api.getInfo).mockClear();
   render(<SysopLayout />);
   await waitFor(() => expect(document.title).toBe('AD6DM-11 · BarBPQ - LinBPQ Web UI'));
-  expect(api.getInfo).toHaveBeenCalled();
+  expect(api.getInfo).toHaveBeenCalledTimes(1);
+});
+
+test('the shell reads /api/info once on mount, not on a timer', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+  vi.setSystemTime(NOW);
+  vi.mocked(api.getInfo).mockClear();
+  render(<SysopLayout />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+  expect(api.getInfo).toHaveBeenCalledTimes(1);
+  expect(document.title).toBe('AD6DM-11 · BarBPQ - LinBPQ Web UI');
 });
 
 test('⌘K opens the palette, arrows move, Enter navigates, Escape closes', async () => {

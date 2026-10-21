@@ -6,7 +6,7 @@ import { effectiveTheme, systemDark, themeMode, toggleTheme } from '../ui/theme'
 import { Unknown } from '../ui/Unknown';
 import { PUBLIC_SCREENS, useDocTitle } from '../public/screens';
 import { getInfo } from '../data/api';
-import { usePoll } from '../data/poll';
+import { useOnce } from '../data/poll';
 import '../public/public.css';
 import './sysop.css';
 import { CommandPalette, usePaletteHotkey } from './CommandPalette';
@@ -77,7 +77,8 @@ export function SysopLayout() {
 
   const st = data.station.data;
   const call = st?.call;
-  const info = usePoll(getInfo, 60_000);
+  // The node call does not change while the node runs: read it once.
+  const info = useOnce(getInfo);
   useDocTitle(info);
   useEffect(() => {
     if (!menu) return undefined;
