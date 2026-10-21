@@ -1,6 +1,6 @@
 # Releasing BarBPQ
 
-This file covers building a release bundle, publishing the fork, installing on the gateway, checking it live, and rolling back. Building is safe to run at any time and never contacts a node.
+This file covers building a release bundle, publishing it, taking a new LinBPQ release, installing on the gateway, checking it live, and rolling back. Building is safe to run at any time and never contacts a node.
 
 Assumed below:linbpq runs from `/usr/local/bin/linbpq` with the login user's home directory as its working directory, inside the tmux session `linbpq`, started by hand (no systemd unit, no cron). Its web port is 8088. `~/HTML` does not exist yet. Version 6.0.26.1 is installed, and an older backup `~/linbpq-6.0.24.34.bak` exists.
 
@@ -33,29 +33,34 @@ SHA256SUMS    one line per file above
 
 Nothing in it contacts the gateway. With `KEEP_DOCKER=1` Docker Desktop stays up afterwards.
 
-## 2. Publish the fork
+## 2. Publish
 
-Check all of this before running any of it:
+BarBPQ lives in its own repository, github.com/denmojo/barbpq, which GitHub does not list as a fork. Its `main` is the local `ui` branch. `origin` points there and `upstream` points at g8bpq/linbpq. Check this before pushing:
 
 ```bash
-# creates github.com/<his account>/linbpq; adds no remote and clones nothing
-gh repo fork g8bpq/linbpq --clone=false
-
-# the remote it then needs
-git remote add origin https://github.com/<his account>/linbpq.git
-
 # what would be pushed
-git log --oneline upstream/master..ui
+git log --oneline origin/main..ui
 
 # commit messages must carry no tool attribution trailers
-git log --format=%B upstream/master..ui | grep -i -E 'co-authored-by|generated with'
+git log --format=%B origin/main..ui | grep -i -E 'co-authored-by|generated with'
 ```
 
 Push only after his explicit yes:
 
 ```bash
-git push -u origin ui
+git push origin ui:main
 ```
+
+### 2.1 Taking a new LinBPQ release
+
+G8BPQ publishes one commit per release on `upstream/master`, named for the version. Merge it, never rebase, since `main` is public:
+
+```bash
+scripts/sync-upstream.sh --dry-run   # the new releases, and which edited upstream files they touch
+scripts/sync-upstream.sh             # merge into ui, check the hook lines, run the test suites
+```
+
+The script refuses a dirty tree or another branch, and never pushes. On a conflict it names the files and stops with the merge in progress. Fix them, keeping every `// uiapi hook` line, `git add` and `git commit`, then run `scripts/sync-upstream.sh --continue`, which checks the hook lines and runs the tests. A hook line that is gone or changed after the merge fails the run and is printed. Then build the bundle (1), try it on staging, and publish (2). `scripts/test_sync_upstream.sh` tests the script against throwaway repositories.
 
 ## 3. Install on the gateway
 
@@ -77,6 +82,12 @@ cd ~/barbpq/barbpq-6.0.26.1-N
 sha256sum -c SHA256SUMS                     # every line OK
 uname -m                                    # x86_64
 ldd ./linbpq | grep 'not found'             # prints nothing (ldd only loads, it does not run linbpq)
+```
+
+The 64-bit build links libpaho-mqtt and libconfig, which a gateway that ran the 32-bit upstream binary may lack. If `ldd` names `libpaho-mqtt3a.so.1` or `libconfig.so.9`, install them, then run the `ldd` line again:
+
+```bash
+sudo apt-get install libpaho-mqtt1.3 libconfig9
 ```
 
 Run everything from here on in an SSH shell of its own, never inside the tmux pane that runs linbpq: stopping linbpq there would leave the procedure without a shell.
