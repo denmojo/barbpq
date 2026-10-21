@@ -29,6 +29,8 @@ export function SignIn() {
       }
     } catch (err) {
       setError({ title: 'Sign-in failed', hint: `The node did not answer: ${err instanceof Error ? err.message : String(err)}` });
+      setPassword('');
+      passRef.current?.focus();
     } finally {
       setBusy(false);
     }

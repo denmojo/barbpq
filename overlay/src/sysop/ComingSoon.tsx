@@ -1,5 +1,6 @@
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
+import { Footer } from '../public/Footer';
 import type { Route } from '../app/router';
 import { labelOf, NAV_ITEMS } from './nav';
 
@@ -19,6 +20,7 @@ export function ComingSoon({ route }: { route: Route }) {
           />
         </Card>
       </div>
+      <Footer />
     </>
   );
 }

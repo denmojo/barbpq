@@ -1,3 +1,4 @@
+import { Fragment } from 'preact';
 import type { StationPort } from '../data/uiapi';
 import type { Poll } from '../data/poll';
 import { Card } from '../ui/Card';
@@ -33,14 +34,14 @@ export function OutageRoute({ fwd, status, ports }: { fwd: Poll<Forwarding>; sta
               <div class="s">when CMS is unreachable</div>
             </li>
             {steps.map((s, i) => (
-              <>
+              <Fragment key={i}>
                 <li class="arrow" aria-hidden="true"><b>→</b>{i === 0 ? 'first' : 'else'}</li>
                 <li class={i === 0 ? 'hop primary-hop' : 'hop'}>
                   <div class="t">Try</div>
                   <div class="n">{s.label}</div>
                   <div class="s">{portLabel(s.port, ports)}</div>
                 </li>
-              </>
+              </Fragment>
             ))}
           </ol>
           {note && <div class="route-foot"><span class="note">{note}</span></div>}

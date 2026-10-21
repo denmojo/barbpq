@@ -183,7 +183,14 @@ export function eventTime(t: string, now: Date = new Date()): string {
   return sameDay ? formatClock(d) : formatStamp(t).split(' ').slice(0, 2).join(' ');
 }
 
-export interface StoreForward { tone: Tone; value: string; meta: string; reason?: string }
+/** How many events the store-and-forward card searches for the last fallback run. */
+export const EVENT_WINDOW = 200;
+
+export interface StoreForward {
+  tone: Tone; value: string; meta: string; reason?: string;
+  /** Set when the last-used line is unknown; the card shows Unknown with this reason. */
+  metaUnknown?: string;
+}
 
 /** The newest forward event that ran while the CMS was unreachable. Events arrive newest first. */
 export function lastFallback(events: UiEvent[]): UiEvent | undefined {
@@ -194,9 +201,12 @@ export function lastFallback(events: UiEvent[]): UiEvent | undefined {
 export function storeForward(fwd: Forwarding, events: UiEvent[] | undefined): StoreForward {
   if (!fwd.rms) return { tone: 'idle', value: 'Not set up', meta: 'No RMS forwarding record on the BBS' };
   const used = events ? lastFallback(events) : undefined;
-  const meta = events === undefined ? '' : used ? `Last used ${formatStamp(used.t)}` : 'Never used';
-  if (!fwd.rms.enabled) return { tone: 'down', value: 'Off', meta, reason: 'Forwarding is not enabled on the RMS record' };
-  return { tone: used ? 'ok' : 'warn', value: 'Armed', meta };
+  // A full window with no fallback says nothing about the events before it.
+  const cut = events !== undefined && !used && events.length >= EVENT_WINDOW;
+  const meta = events === undefined || cut ? '' : used ? `Last used ${formatStamp(used.t)}` : 'Never used';
+  const unknown = cut ? { metaUnknown: `No fallback in the last ${EVENT_WINDOW} events` } : {};
+  if (!fwd.rms.enabled) return { tone: 'down', value: 'Off', meta, reason: 'Forwarding is not enabled on the RMS record', ...unknown };
+  return { tone: used ? 'ok' : 'warn', value: 'Armed', meta, ...unknown };
 }
 
 /** A link state as the health card shows it. */

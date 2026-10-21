@@ -60,4 +60,5 @@ test('a node that does not answer also reads Sign-in failed, with the reason', a
   render(<SignIn />);
   fill(USER, PASS);
   expect(await screen.findByRole('alert')).toHaveTextContent(/Sign-in failed.*answered 404/);
+  expect(screen.getByLabelText('Password')).toHaveValue('');
 });

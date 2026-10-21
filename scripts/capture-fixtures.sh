@@ -39,6 +39,9 @@ KEY="$(grep -ao '/Mail/Status?[A-Za-z0-9]*' "$OUT/mail-header.html" | head -1 | 
 for p in Status Conf HK FWD Users; do
   get -b "$JAR" "$BASE/Mail/$p?$KEY" >"$OUT/mail-$(echo "$p" | tr A-Z a-z).html"
 done
+# Forwarding partners and the RMS record: both are POSTs; FwdDetails takes the call as the body
+get -b "$JAR" -X POST --data '' "$BASE/Mail/FwdList.txt?$KEY" >"$OUT/mail-fwdlist.txt"
+get -b "$JAR" -X POST --data 'RMS' "$BASE/Mail/FwdDetails?$KEY" >"$OUT/mail-fwddetails-rms.html"
 
 # Scrub: the config text on the Edit Config page holds the staging test password,
 # and the mail Conf page carries an ISP password blob. Replace both bodies.

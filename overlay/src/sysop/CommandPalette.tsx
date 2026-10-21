@@ -1,3 +1,4 @@
+import { Fragment } from 'preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import { navigate } from '../app/router';
 import { filterPalette, paletteItems, type PaletteItem } from './palette';
@@ -100,7 +101,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
             const head = item.group && item.group !== lastGroup ? item.group : null;
             lastGroup = item.group;
             return (
-              <>
+              <Fragment key={`${item.group ?? ''}:${item.label}`}>
                 {head && <li class="pal-group" role="presentation">{head}</li>}
                 <li
                   id={`${id}-${i}`}
@@ -112,7 +113,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                 >
                   {item.label}
                 </li>
-              </>
+              </Fragment>
             );
           })}
           {!items.length && <li class="pal-none" role="presentation">Nothing matches “{query}”.</li>}

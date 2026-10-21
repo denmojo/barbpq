@@ -4,7 +4,7 @@ import { fixture } from '../../data/__tests__/helpers';
 import type { UiEvent } from '../../data/uiapi';
 import {
   eventTime, parseConnectScript, parseFwdDetails, parseFwdList, parseMailStatus, portLabel, scheduleNote,
-  shortAddr, storeForward, type Forwarding, type FwdRecord,
+  shortAddr, storeForward, EVENT_WINDOW, type Forwarding, type FwdRecord,
 } from '../model';
 import { station } from '../../public/__tests__/sample';
 
@@ -87,4 +87,17 @@ test('eventTime: clock time today, the date before today (local zone)', () => {
   const now = new Date('2026-10-20T17:00:00Z');
   expect(eventTime('2026-10-20T15:12:00Z', now)).toBe('08:12');
   expect(eventTime('2026-10-20T06:00:00Z', now)).toBe('Oct 19');
+});
+
+test('store and forward: no fallback in a full 200-event window is Unknown, not Never used', () => {
+  expect(EVENT_WINDOW).toBe(200);
+  const full = Array.from({ length: EVENT_WINDOW }, (_, i) => ev(new Date(Date.UTC(2026, 9, 20, 16, 0, 0) - i * 60_000).toISOString(), 'restart'));
+  expect(storeForward(rms(), full)).toEqual({
+    tone: 'warn', value: 'Armed', meta: '', metaUnknown: 'No fallback in the last 200 events',
+  });
+});
+
+test('store and forward: no fallback in a log shorter than the window is Never used', () => {
+  const short = Array.from({ length: EVENT_WINDOW - 1 }, () => ev('2026-10-20T16:00:00Z', 'restart'));
+  expect(storeForward(rms(), short)).toEqual({ tone: 'warn', value: 'Armed', meta: 'Never used' });
 });

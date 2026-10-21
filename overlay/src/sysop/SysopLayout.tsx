@@ -1,16 +1,12 @@
-import type { FunctionComponent } from 'preact';
+import { Fragment } from 'preact';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import { navigate, route, type Route } from '../app/router';
 import { signOut } from '../data/session';
 import { effectiveTheme, systemDark, themeMode, toggleTheme } from '../ui/theme';
 import { Unknown } from '../ui/Unknown';
-import { nodeVersion } from '../public/Footer';
-import { Overview } from '../public/Overview';
-import { Ports } from '../public/Ports';
-import { Heard } from '../public/Heard';
-import { LinksRoutes } from '../public/LinksRoutes';
-import { Sessions } from '../public/Sessions';
-import { PUBLIC_NAME } from '../public/PublicLayout';
+import { PUBLIC_SCREENS, useDocTitle } from '../public/screens';
+import { getInfo } from '../data/api';
+import { usePoll } from '../data/poll';
 import '../public/public.css';
 import './sysop.css';
 import { CommandPalette, usePaletteHotkey } from './CommandPalette';
@@ -23,10 +19,6 @@ import { ShellContext, useShellPolls, type ShellData } from './shell';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const PALETTE_KEY = IS_MAC ? '⌘K' : 'Ctrl K';
-
-const PUBLIC_SCREENS: Partial<Record<Route, FunctionComponent>> = {
-  overview: Overview, ports: Ports, heard: Heard, links: LinksRoutes, sessions: Sessions,
-};
 
 function doSignOut(): void {
   signOut();
@@ -57,19 +49,19 @@ function Sidebar({ current, data, open, onPick }: { current: Route; data: ShellD
   return (
     <aside id="sys-nav" class={open ? 'side open' : 'side'} aria-label="SysOp navigation">
       {NAV.map((g) => (
-        <>
+        <Fragment key={g.heading ?? 'top'}>
           {g.heading && <div class="navh">{g.heading}</div>}
           {g.items.map((i) => {
             const c = count(i, data);
             return (
-              <a href={`#/${i.route}`} aria-current={i.route === current ? 'page' : undefined} onClick={onPick}>
+              <a key={i.route} href={`#/${i.route}`} aria-current={i.route === current ? 'page' : undefined} onClick={onPick}>
                 <i.icon />
                 {i.label}
                 {c && <span class="count" title={c.title}>{c.n}</span>}
               </a>
             );
           })}
-        </>
+        </Fragment>
       ))}
     </aside>
   );
@@ -85,12 +77,8 @@ export function SysopLayout() {
 
   const st = data.station.data;
   const call = st?.call;
-  useEffect(() => {
-    document.title = call ? `${call} · ${PUBLIC_NAME}` : PUBLIC_NAME;
-  }, [call]);
-  useEffect(() => {
-    if (st) nodeVersion.value = st.version;
-  }, [st]);
+  const info = usePoll(getInfo, 60_000);
+  useDocTitle(info);
   useEffect(() => {
     if (!menu) return undefined;
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setMenu(false); };

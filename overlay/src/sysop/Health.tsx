@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact';
+import { useMemo } from 'preact/hooks';
 import { usePoll, type Poll } from '../data/poll';
 import { getCms, getEvents, getLinkStates } from '../data/uiapi';
 import type { CmsState, LinkState, StationPort, UiEvent } from '../data/uiapi';
@@ -11,7 +12,7 @@ import { Unknown } from '../ui/Unknown';
 import { formatClock } from '../ui/format';
 import { Footer } from '../public/Footer';
 import { useUpdated } from '../public/useUpdated';
-import { linkValue, shortAddr, storeForward, eventTime } from './model';
+import { EVENT_WINDOW, linkValue, shortAddr, storeForward, eventTime } from './model';
 import type { Forwarding, MailStatus } from './model';
 import { OutageRoute } from './OutageRoute';
 import { RecentChanges } from './RecentChanges';
@@ -74,7 +75,9 @@ function bbsCard(status: Poll<MailStatus>) {
 function storeForwardCard(fwd: Poll<Forwarding>, events: Poll<UiEvent[]>) {
   if (!fwd.data) return <HealthCard name="Store and forward" tone="idle" value={<Pending poll={fwd} />} />;
   const sf = storeForward(fwd.data, events.data);
-  const meta = events.data ? sf.meta : events.error ? <Unknown reason={events.error.message} /> : <Skel />;
+  const meta = !events.data
+    ? events.error ? <Unknown reason={events.error.message} /> : <Skel />
+    : sf.metaUnknown ? <Unknown reason={sf.metaUnknown} /> : sf.meta;
   return <HealthCard name="Store and forward" tone={sf.tone} value={sf.reason ? <span title={sf.reason}>{sf.value}</span> : sf.value} meta={meta} />;
 }
 
@@ -104,12 +107,12 @@ export function Health() {
   const shell = useShell();
   const links = usePoll(getLinkStates, HEALTH_POLL_MS);
   const cms = usePoll(getCms, HEALTH_POLL_MS);
-  const recent = usePoll(() => getEvents(10), HEALTH_POLL_MS);
-  // The newest fallback run may be older than the last ten events; look further back.
-  const history = usePoll(() => getEvents(200), 60_000);
+  // One event poll: Recent changes shows its first ten, store and forward searches all of it.
+  const history = usePoll(() => getEvents(EVENT_WINDOW), HEALTH_POLL_MS);
+  const recent = useMemo(() => ({ ...history, data: history.data?.slice(0, 10) }), [history]);
   const checked = useUpdated(links.data);
   const ports = shell.station.data?.ports;
-  const stale = [links, cms, recent, history, shell.station, shell.status, shell.fwd].some((p) => p.stale);
+  const stale = [links, cms, history, shell.station, shell.status, shell.fwd].some((p) => p.stale);
 
   return (
     <>

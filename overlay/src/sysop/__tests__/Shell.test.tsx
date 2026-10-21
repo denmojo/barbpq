@@ -6,6 +6,7 @@ import { App } from '../../app/App';
 import { route } from '../../app/router';
 import { sysop } from '../../data/session';
 import * as ui from '../../data/uiapi';
+import * as api from '../../data/api';
 import type { UiEvent } from '../../data/uiapi';
 import { parseMailKey } from '../../data/pages';
 import { fixture, stubFetch } from '../../data/__tests__/helpers';
@@ -101,11 +102,11 @@ test('outage route shows the hops from the RMS connect script in order', async (
   expect(screen.getByText('Every 30 min while mail is held · sends new mail at once')).toBeInTheDocument();
 });
 
-test('recent changes lists getEvents(10) newest first', async () => {
+test('recent changes lists the first 10 of the single getEvents(200) poll, newest first', async () => {
   render(<SysopLayout />);
   const region = await screen.findByRole('region', { name: 'Recent changes' });
   await waitFor(() => expect(region.querySelectorAll('li')).toHaveLength(4));
-  expect(ui.getEvents).toHaveBeenCalledWith(10);
+  expect(vi.mocked(ui.getEvents).mock.calls).toEqual([[200]]);
   expect(Array.from(region.querySelectorAll('time')).map((t) => t.textContent)).toEqual(['09:58', '09:30', '09:20', '06:30']);
   expect(region).toHaveTextContent('Forwarded via W6SAR-10 via port 2 while CMS was unreachable');
   expect(region).toHaveTextContent('Node restarted');
@@ -133,11 +134,28 @@ test('sidebar: Health, Network, Mail, System, SYSOP badge, nothing links an old 
   expectNoOldPageLinks(container);
 });
 
-test('a screen not built yet shows Coming in this release', async () => {
-  route.value = 'messages';
+test('recent changes stops at 10 entries of the 200-event poll', async () => {
+  vi.mocked(ui.getEvents).mockResolvedValue(Array.from({ length: 30 }, (_, i) => (
+    { t: new Date(Date.UTC(2026, 9, 20, 16, 59) - i * 60_000).toISOString(), kind: 'restart', detail: {} } as UiEvent)));
   render(<SysopLayout />);
-  expect(screen.getByRole('heading', { level: 1, name: 'Messages' })).toBeInTheDocument();
-  expect(screen.getByText('Coming in this release.')).toBeInTheDocument();
+  const region = await screen.findByRole('region', { name: 'Recent changes' });
+  await waitFor(() => expect(region.querySelectorAll('li')).toHaveLength(10));
+  expect(region.querySelector('time')).toHaveTextContent('09:59');
+});
+
+test.each(['messages', 'forwarding', 'bbsusers', 'housekeeping', 'settings', 'console', 'logs'] as const)(
+  'a screen not built yet (%s) shows Coming in this release and the footer', (r) => {
+    route.value = r;
+    const { container } = render(<SysopLayout />);
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    expect(screen.getByText('Coming in this release.')).toBeInTheDocument();
+    expect(container.querySelector('footer.foot')).toHaveTextContent('BarBPQ - LinBPQ Web UI');
+  });
+
+test('the sysop document title is the call from /api/info and the public name', async () => {
+  render(<SysopLayout />);
+  await waitFor(() => expect(document.title).toBe('AD6DM-11 · BarBPQ - LinBPQ Web UI'));
+  expect(api.getInfo).toHaveBeenCalled();
 });
 
 test('⌘K opens the palette, arrows move, Enter navigates, Escape closes', async () => {
