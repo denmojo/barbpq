@@ -39,10 +39,18 @@ export function portMeta(p: StationPort, telnetPort: number | null): string {
 
 export interface Pill { tone: Tone; label: string; title: string }
 
+/** A linked port's chip label from the node's evidence: an open serial device is Device open, an
+ *  AXIP socket Linked, an observed radio link (or a node that sends no evidence) Listening. */
+function linkedLabel(evidence: LinkState['evidence']): string {
+  if (evidence === 'device') return 'Device open';
+  if (evidence === 'socket') return 'Linked';
+  return 'Listening';
+}
+
 /** Link state as a chip. "unknown" and a port the node left out are Unknown, never Listening. */
 export function linkPill(state: LinkState | undefined): Pill {
   if (!state) return { tone: 'idle', label: 'Unknown', title: 'The node has not reported a link state for this port' };
-  if (state.state === 'linked') return { tone: 'ok', label: 'Listening', title: state.detail };
+  if (state.state === 'linked') return { tone: 'ok', label: linkedLabel(state.evidence), title: state.detail };
   if (state.state === 'down') return { tone: 'down', label: 'Down', title: state.detail };
   return { tone: 'idle', label: 'Unknown', title: state.detail };
 }
@@ -53,8 +61,9 @@ export interface Hero {
   sub2?: string;
 }
 
-/** The status line at the top of Overview. It says "on the air" only when a radio port is linked;
- *  internet links never count. */
+/** The status line at the top of Overview. It says "on the air" only when a radio port has a link
+ *  the node observed; when every linked radio is only an open serial device it says "up: TNC
+ *  device open". Internet links never count. */
 export function heroStatus(
   station: Station | undefined, links: LinkState[] | undefined,
   errors: { station?: Error; links?: Error } = {},
@@ -80,7 +89,10 @@ export function heroStatus(
   }
   const watched = (rf.length ? rf : radio).map((p) => links.find((l) => l.number === p.number));
   const states = watched.map((l) => l?.state ?? 'unknown');
-  if (states.includes('linked')) return { tone: 'ok', title: `${what} on the air`, sub };
+  const linked = watched.filter((l) => l?.state === 'linked');
+  // A missing evidence field (an older node) counts as an observed link, as it did before.
+  if (linked.some((l) => l?.evidence !== 'device')) return { tone: 'ok', title: `${what} on the air`, sub };
+  if (linked.length) return { tone: 'ok', title: `${what} up: TNC device open`, sub };
   if (states.length && states.every((s) => s === 'down')) {
     // Each down port's own words, in port order, said once each; the frequency line moves under them.
     const details = [...new Set(watched.map((l) => l?.detail.trim() ?? '').filter(Boolean))].join(' · ');

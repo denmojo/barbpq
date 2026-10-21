@@ -139,7 +139,7 @@ export function Overview() {
                 </li>
               ))}
             </ul>
-          ) : <EmptyState icon="📻" title="Nothing heard yet." hint="Stations show here as the radio ports hear them." />)}
+          ) : <EmptyState icon="📻" title="Nothing heard yet." hint="Stations show here as the node's ports hear them." />)}
         </Card>
 
         {inet.length > 0 && (

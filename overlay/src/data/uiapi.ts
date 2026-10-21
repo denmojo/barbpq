@@ -21,7 +21,12 @@ export interface Station {
   telnetPort: number | null;
   ports: StationPort[];
 }
-export interface LinkState { number: number; state: 'linked' | 'down' | 'unknown'; detail: string }
+/** evidence, for a linked port, is what the node saw: a link it observed (VARA, KISS TCP), only a
+ *  device held open (serial KISS), or AXIP sockets open. null otherwise; absent from an older node. */
+export type LinkEvidence = 'link' | 'device' | 'socket';
+export interface LinkState {
+  number: number; state: 'linked' | 'down' | 'unknown'; detail: string; evidence?: LinkEvidence | null;
+}
 export interface CmsState { lastAttempt: string | null; lastSuccess: string | null; ok: boolean | null }
 export interface Counts { windowStart: string | null; full: boolean; sessions: number; messages: number; frames: number }
 export interface Heard { call: string; packets: number; lastHeard: string | null; via: string[] }

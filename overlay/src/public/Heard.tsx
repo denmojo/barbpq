@@ -55,7 +55,7 @@ export function Heard() {
                 <EmptyState
                   icon="📻"
                   title={tab === 'all' ? 'Nothing heard yet.' : 'Nothing heard on this port yet.'}
-                  hint="Stations show here as the radio ports hear them."
+                  hint="Stations show here as the node's ports hear them."
                 />
               )}
             </>

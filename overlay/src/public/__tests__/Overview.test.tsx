@@ -74,7 +74,7 @@ test('an AXIP port sits under Internet links, not Radio ports', async () => {
     { number: 1, state: 'unknown', detail: 'driver reports no link state' },
     { number: 3, state: 'linked', detail: 'connected to VARA modem' },
     { number: 2, state: 'down', detail: 'KISS TCP not connected' },
-    { number: 4, state: 'linked', detail: 'socket open, 1 of 1 peers heard in the last hour' },
+    { number: 4, state: 'linked', detail: 'socket open, 1 of 1 peers heard in the last hour', evidence: 'socket' },
   ]);
   render(<Overview />);
   const radio = await screen.findByRole('region', { name: 'Radio ports' });
@@ -82,8 +82,10 @@ test('an AXIP port sits under Internet links, not Radio ports', async () => {
   await within(radio).findByText('VARA FM', { selector: '.pname' });
   expect(within(radio).queryByText('AXIP peer link')).toBeNull();
   expect(within(inet).getByText('AXIP peer link', { selector: '.pname' })).toBeInTheDocument();
-  const chip = await within(inet).findByText('Listening');
+  // an AXIP socket is Linked, not Listening; the tooltip keeps the node's words
+  const chip = await within(inet).findByText('Linked');
   expect(chip.closest('[title]')).toHaveAttribute('title', 'socket open, 1 of 1 peers heard in the last hour');
+  expect(inet).not.toHaveTextContent('Listening');
 });
 
 test('an AXIP driver is matched the way LinBPQ loads it: upper-cased, BPQAXIP anywhere in the name', () => {
@@ -117,6 +119,58 @@ test('a linked AXIP port does not put a node with every radio down on the air', 
   expect(await within(hero).findByText('Node down: radios not connected')).toBeInTheDocument();
   expect(within(hero).getByText('Telnet not listening · VARA modem not connected · serial device not open')).toBeInTheDocument();
   expect(hero).not.toHaveTextContent('socket open');
+});
+
+test('hero reads up: TNC device open when the only linked radios are open serial devices', async () => {
+  vi.mocked(ui.getLinkStates).mockResolvedValue([
+    { number: 1, state: 'unknown', detail: 'driver reports no link state', evidence: null },
+    { number: 3, state: 'down', detail: 'VARA modem not connected', evidence: null },
+    { number: 2, state: 'linked', detail: 'serial device open', evidence: 'device' },
+  ]);
+  render(<Overview />);
+  const hero = await screen.findByRole('region', { name: 'Node status' });
+  expect(await within(hero).findByText('Gateway up: TNC device open')).toBeInTheDocument();
+  expect(within(hero).queryByText('Gateway on the air')).toBeNull();
+  expect(hero.querySelector('.pulse')).toHaveClass('ok');
+  // same sub-line as on the air: the frequency line
+  expect(Array.from(hero.querySelectorAll('.hero-text p')).map((p) => p.textContent))
+    .toEqual(['Winlink RMS on 145.630 MHz · VARA FM and 1200 baud packet']);
+  // the serial port's chip says Device open, with the node's words as its tooltip
+  const chip = await within(portRow('Direwolf')).findByText('Device open');
+  expect(chip.closest('[title]')).toHaveAttribute('title', 'serial device open');
+  expect(portRow('Direwolf')).not.toHaveTextContent('Listening');
+});
+
+test('hero stays on the air when one radio link was observed beside an open serial device', async () => {
+  vi.mocked(ui.getLinkStates).mockResolvedValue([
+    { number: 1, state: 'unknown', detail: 'driver reports no link state', evidence: null },
+    { number: 3, state: 'linked', detail: 'connected to VARA modem', evidence: 'link' },
+    { number: 2, state: 'linked', detail: 'serial device open', evidence: 'device' },
+  ]);
+  render(<Overview />);
+  const hero = await screen.findByRole('region', { name: 'Node status' });
+  expect(await within(hero).findByText('Gateway on the air')).toBeInTheDocument();
+  expect(within(portRow('VARA FM')).getByText('Listening')).toBeInTheDocument();
+});
+
+test('a node that sends no evidence field reads as before: linked is on the air', async () => {
+  vi.mocked(ui.getLinkStates).mockResolvedValue([
+    { number: 1, state: 'unknown', detail: 'driver reports no link state' },
+    { number: 3, state: 'down', detail: 'VARA modem not connected' },
+    { number: 2, state: 'linked', detail: 'KISS TCP connected' },
+  ]);
+  render(<Overview />);
+  const hero = await screen.findByRole('region', { name: 'Node status' });
+  expect(await within(hero).findByText('Gateway on the air')).toBeInTheDocument();
+  expect(within(portRow('Direwolf')).getByText('Listening')).toBeInTheDocument();
+});
+
+test('the Recently heard hint covers every port, not only radios', async () => {
+  vi.mocked(ui.getHeard).mockResolvedValue([]);
+  render(<Overview />);
+  const card = await screen.findByRole('region', { name: 'Recently heard' });
+  expect(await within(card).findByText('Stations show here as the node\'s ports hear them.')).toBeInTheDocument();
+  expect(card).not.toHaveTextContent('radio ports');
 });
 
 test('port cards show addresses, TXTAIL and the telnet port from getStation', async () => {

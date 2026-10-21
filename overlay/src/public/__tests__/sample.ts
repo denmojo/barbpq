@@ -17,9 +17,9 @@ export const station: Station = {
 };
 
 export const linkStates: LinkState[] = [
-  { number: 1, state: 'unknown', detail: 'driver reports no link state' },
-  { number: 3, state: 'linked', detail: 'connected to VARA modem' },
-  { number: 2, state: 'down', detail: 'KISS TCP not connected' },
+  { number: 1, state: 'unknown', detail: 'driver reports no link state', evidence: null },
+  { number: 3, state: 'linked', detail: 'connected to VARA modem', evidence: 'link' },
+  { number: 2, state: 'down', detail: 'KISS TCP not connected', evidence: null },
 ];
 
 export const cms: CmsState = { lastAttempt: '2026-10-20T15:00:00Z', lastSuccess: '2026-10-20T15:00:00Z', ok: true };

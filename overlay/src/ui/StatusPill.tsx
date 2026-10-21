@@ -1,6 +1,6 @@
 export type Tone = 'ok' | 'down' | 'warn' | 'idle';
 
-/** A rounded status chip with a dot: Listening, Down, Unknown. */
+/** A rounded status chip with a dot: Listening, Device open, Linked, Down, Unknown. */
 export function StatusPill({ tone, label, title }: { tone: Tone; label: string; title?: string }) {
   return (
     <span class={`chip ${tone}`} title={title}>
