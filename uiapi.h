@@ -96,12 +96,13 @@ struct ui_kiss_link
 const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t cap);
 
 /* Link state of a BPQAXIP port. sockets is the count of the driver's sockets
-   that are open (and bound, for UDP); heard holds each MAP entry's LastHeard
-   (0 = never). "linked" when a socket is open, "down" when none is; detail
-   counts the entries heard within the hour, the node's own AXIP Up test
-   (HTTPcode.c:4285). */
-const char *uiapi_axip_link(int sockets, const time_t *heard, int n, time_t now,
-	char *detail, size_t cap);
+   that are open (and bound to their configured port, for UDP); unbound_udp
+   is a configured UDP port with no socket bound to it (0 = none); heard holds
+   each MAP entry's LastHeard (0 = never). "down" when a UDP port is unbound
+   or no socket is open, else "linked"; detail counts the entries heard within
+   the hour, the node's own AXIP Up test (HTTPcode.c:4289). */
+const char *uiapi_axip_link(int sockets, int unbound_udp, const time_t *heard, int n,
+	time_t now, char *detail, size_t cap);
 
 /* /api/ui handlers for nodeapi.c APIList */
 int uiapi_api_station(char *response, char *token, char *param, int Local);

@@ -903,11 +903,16 @@ const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t c
 	return k->open ? "linked" : "down";
 }
 
-const char *uiapi_axip_link(int sockets, const time_t *heard, int n, time_t now,
-	char *detail, size_t cap)
+const char *uiapi_axip_link(int sockets, int unbound_udp, const time_t *heard, int n,
+	time_t now, char *detail, size_t cap)
 {
 	int i, recent = 0;
 
+	if (unbound_udp > 0)
+	{
+		snprintf(detail, cap, "AXIP UDP %d not bound", unbound_udp);
+		return "down";
+	}
 	if (sockets <= 0)
 	{
 		snprintf(detail, cap, "AXIP socket not open");
@@ -1179,31 +1184,58 @@ static struct AXIPPORTINFO *port_axip(struct PORTCONTROL *P)
 	return Portlist[n];
 }
 
-/* The AXIP driver's sockets that are open. The driver keeps no bind result:
-   OpenSockets (bpqaxip.c:854-946) reports a failed bind on the console and
-   keeps the socket, so a UDP socket counts only when getsockname gives it a
-   port. The raw IP 93 socket binds to any address with port 0
-   (bpqaxip.c:874-878), so for it being open is all there is to read. A TCP
-   map counts while connected or listening (bpqaxip.c:1021, 2784, 3031). */
-static int axip_sockets(struct AXIPPORTINFO *A)
+/* Whether s is a UDP socket bound to the driver's configured port. The driver
+   keeps no bind result: OpenSockets (bpqaxip.c:933-944) reports a failed bind
+   on the console and keeps the socket, and the first sendto through it
+   (SendFrame, bpqaxip.c:736-763) makes the kernel bind an ephemeral port. So
+   any port is not enough; it must be htons(udpport[i]), in the family the
+   driver asked for (bpqaxip.c:896-898).
+
+   CloseSockets (bpqaxip.c:1025-1037) closes the sockets without zeroing the
+   numbers, and a reinit (ExtProc fn 4, bpqaxip.c:678-691) reopens them on
+   another thread, so a number read here may be closed or already reused. A closed number fails
+   getsockname. A reused one passes only if it is a UDP socket of the same
+   family bound to the configured port, which in this process means the
+   driver's own reopened socket. Nothing in the driver marks a socket as
+   closed (no generation or state field), so this is as far as a read
+   without an upstream edit can go. */
+static int axip_udp_bound(SOCKET s, int want_port, int want_v6)
 {
 	struct sockaddr_storage ss;
-	socklen_t len;
-	int i, n = 0, port;
+	socklen_t len = sizeof(ss);
+	int type = 0;
+	socklen_t tlen = sizeof(type);
 
+	if (s <= 0)
+		return 0;
+	if (getsockopt(s, SOL_SOCKET, SO_TYPE, &type, &tlen) != 0 || type != SOCK_DGRAM)
+		return 0;
+	if (getsockname(s, (struct sockaddr *)&ss, &len) != 0)
+		return 0;
+	if (want_v6)
+		return ss.ss_family == AF_INET6
+			&& ((struct sockaddr_in6 *)&ss)->sin6_port == htons(want_port);
+	return ss.ss_family == AF_INET && ((struct sockaddr_in *)&ss)->sin_port == htons(want_port);
+}
+
+/* The AXIP driver's sockets that are open. *unbound gets the first configured
+   UDP port with no socket bound to it (0 when all are). The raw IP 93 socket
+   binds to any address with port 0 (bpqaxip.c:874-878), so for it being open
+   is all there is to read. A TCP map counts while connected or listening
+   (bpqaxip.c:1021, 2784, 3031). */
+static int axip_sockets(struct AXIPPORTINFO *A, int *unbound)
+{
+	int i, n = 0;
+
+	*unbound = 0;
 	if (A->needip && A->sock > 0)
 		n++;
 	for (i = 0; i < A->NumberofUDPPorts && i < MAXUDPPORTS + 2; i++)
 	{
-		if (A->udpsock[i] <= 0)
-			continue;
-		len = sizeof(ss);
-		if (getsockname(A->udpsock[i], (struct sockaddr *)&ss, &len) != 0)
-			continue;
-		port = ss.ss_family == AF_INET6 ? ((struct sockaddr_in6 *)&ss)->sin6_port
-			: ss.ss_family == AF_INET ? ((struct sockaddr_in *)&ss)->sin_port : 0;
-		if (port)
+		if (axip_udp_bound(A->udpsock[i], A->udpport[i], A->IPv6[i]))
 			n++;
+		else if (!*unbound)
+			*unbound = A->udpport[i] > 0 ? A->udpport[i] : -1;
 	}
 	for (i = 0; i < A->arp_table_len && i < MAX_ENTRIES; i++)
 		if (A->arp_table[i].TCPState == UI_AXIP_TCPLISTENING
@@ -1228,7 +1260,7 @@ static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
 	if (A)
 	{
 		time_t heard[MAX_ENTRIES];
-		int i, n = A->arp_table_len;
+		int i, n = A->arp_table_len, sockets, unbound;
 
 		if (n < 0)
 			n = 0;
@@ -1237,7 +1269,8 @@ static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
 		/* arp_table_entry.LastHeard, set on each packet from the peer (bpqaxip.c:2628) */
 		for (i = 0; i < n; i++)
 			heard[i] = A->arp_table[i].LastHeard;
-		return uiapi_axip_link(axip_sockets(A), heard, n, time(NULL), detail, cap);
+		sockets = axip_sockets(A, &unbound);
+		return uiapi_axip_link(sockets, unbound, heard, n, time(NULL), detail, cap);
 	}
 	if (P->PORTTYPE == 0)
 	{

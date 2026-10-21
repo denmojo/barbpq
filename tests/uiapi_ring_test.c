@@ -645,15 +645,18 @@ static void test_axip_link(void)
 	time_t never[1] = { 0 };
 	char d[64];
 
-	assert(strcmp(uiapi_axip_link(0, heard, 3, now, d, sizeof d), "down") == 0);
+	assert(strcmp(uiapi_axip_link(0, 0, heard, 3, now, d, sizeof d), "down") == 0);
 	assert(strcmp(d, "AXIP socket not open") == 0);
 	/* within the hour counts, as the node's AXIP page (HTTPcode.c) has it */
-	assert(strcmp(uiapi_axip_link(1, heard, 3, now, d, sizeof d), "linked") == 0);
+	assert(strcmp(uiapi_axip_link(1, 0, heard, 3, now, d, sizeof d), "linked") == 0);
 	assert(strcmp(d, "socket open, 2 of 3 peers heard in the last hour") == 0);
-	assert(strcmp(uiapi_axip_link(2, never, 1, now, d, sizeof d), "linked") == 0);
+	assert(strcmp(uiapi_axip_link(2, 0, never, 1, now, d, sizeof d), "linked") == 0);
 	assert(strcmp(d, "socket open, 0 of 1 peers heard in the last hour") == 0);
-	assert(strcmp(uiapi_axip_link(1, NULL, 0, now, d, sizeof d), "linked") == 0);
+	assert(strcmp(uiapi_axip_link(1, 0, NULL, 0, now, d, sizeof d), "linked") == 0);
 	assert(strcmp(d, "socket open, no peers mapped") == 0);
+	/* a configured UDP port the driver could not bind is down, whatever else is open */
+	assert(strcmp(uiapi_axip_link(2, 10093, heard, 3, now, d, sizeof d), "down") == 0);
+	assert(strcmp(d, "AXIP UDP 10093 not bound") == 0);
 	passed++;
 }
 

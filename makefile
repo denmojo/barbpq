@@ -83,8 +83,12 @@ clean :
 	rm *.d
 	rm linbpq $(OBJS)
 
-# uiapi: unit tests for the counter ring (standalone, no linbpq headers)
+# uiapi: unit tests for the counter ring (standalone, no linbpq headers) and for
+# /api/ui/links over fixture node structures (linbpq headers, node globals stubbed)
 uitest:
 	gcc -std=gnu99 -Wall -DUIAPI_TEST -g -o tests/uiapi_ring_test tests/uiapi_ring_test.c uiapi.c -lpthread
 	tests/uiapi_ring_test
 	rm -f tests/uiapi_ring_test
+	gcc -std=gnu99 -Wall -Wno-unused-variable -Wno-unused-function -DLINBPQ -fcommon -g -o tests/uiapi_links_test tests/uiapi_links_test.c uiapi.c -lpthread
+	tests/uiapi_links_test
+	rm -f tests/uiapi_links_test
