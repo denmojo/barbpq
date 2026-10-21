@@ -9,7 +9,47 @@ It adds two things:
 
 Upstream's own pages under `/Node/` and `/Mail/` stay in place and keep working.
 
+<p align="center">
+  <img src="docs/screenshots/overview-desktop.png" alt="The public Overview of a live RMS gateway in a desktop browser: Gateway on the air on 145.630 MHz, VARA FM and Dire Wolf ports listening, the recently heard list, session and frame counters" width="100%">
+  <br><em>Overview on a live Winlink RMS gateway</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/overview-phone.png" alt="The same Overview at phone width in the light theme, with the status card, radio ports and recently heard stacked" width="35%">
+  <br><em>Phone view, light theme</em>
+</p>
+
 BarBPQ is Linux only. Its release bundle holds a 64-bit x86-64 Linux build of `linbpq`. Upstream's Windows and macOS build files are left untouched and are not built or tested.
+
+## Screens
+
+Each port shows its driver, frequency, mode, address and whether its modem is linked. VARA reports its TNC connection, and KISS over TCP reports its socket; other drivers read Unknown, never a guess.
+
+<p align="center">
+  <img src="docs/screenshots/ports.png" alt="The Ports table: VARA FM and Direwolf on 145.630 MHz listening, the Telnet server with unknown link state" width="100%">
+</p>
+
+For the SysOp, Health gathers the radios, the CMS link, the BBS and the store-and-forward path into one page, with the outage route a held message takes when the CMS is unreachable and the node's recent changes. The shots below come from a staging node with test callsigns, its radios unplugged.
+
+<p align="center">
+  <img src="docs/screenshots/health.png" alt="The Health page: VARA FM and Dire Wolf down, Winlink CMS reachable, BBS running, store and forward armed; the outage route from the BBS to CMS via internet, else W6SAR-10 on packet; recent forwarding runs and restarts" width="100%">
+</p>
+
+Messages lists everything on the BBS with its status, and a message opens for release, hold or kill. Forwarding edits each partner's schedule and connect script, ELSE fallbacks included, and starts a run on demand.
+
+<p align="center">
+  <img src="docs/screenshots/messages.png" alt="The Messages page: held, sent and bounced counts above a message list with type, status, from, to, subject, size and date" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/forwarding.png" alt="Forwarding for the RMS partner: Start forwarding, the schedule fields, and a connect script of ATTACH 1, NOFALLBACK, C CMS, ELSE, C 2 W6SAR-10" width="100%">
+</p>
+
+The console is the node's own command line in the browser, one command at a time with its echo, plus one-click buttons for the common ones.
+
+<p align="center">
+  <img src="docs/screenshots/console.png" alt="The Console after PORTS and ROUTES: four ports listed and a route to N0PEER-11" width="100%">
+</p>
 
 ## Building
 
