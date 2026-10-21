@@ -3,7 +3,7 @@ import { NonLatin1Error, ParseError } from '../../data/http';
 import { NotAuthorizedError, sysop } from '../../data/session';
 import { route } from '../../app/router';
 import {
-  encodeLine, LineTooLongError, MAX_LINE, openConsole, OutputSplitter, parseTermKey,
+  ControlCharError, encodeLine, LineTooLongError, MAX_LINE, openConsole, OutputSplitter, parseTermKey,
   pendingCommand, takePendingCommand, termSocketUrl, typeCommand, type ConsoleStatus,
 } from '../consoleproto';
 import { FakeWS, nodeTermDecode } from './fakews';
@@ -152,9 +152,65 @@ test('close() before the page arrives opens no socket', async () => {
 });
 
 test('typeCommand queues one command and opens the console screen', () => {
-  typeCommand('RESTART');
+  typeCommand('PORTS');
   expect(route.value).toBe('console');
   expect(location.hash).toBe('#/console');
-  expect(takePendingCommand()).toBe('RESTART');
+  expect(takePendingCommand()).toBe('PORTS');
   expect(takePendingCommand()).toBeNull();
+});
+
+test('encodeLine refuses control characters other than tab: CR or LF would split one line into two commands', () => {
+  for (const bad of ['a\rb', 'a\nb', 'a\u0000b', 'a\u001bb']) expect(() => encodeLine(bad)).toThrow(ControlCharError);
+  expect(encodeLine('a\tb')).toBe('a\tb\r');
+});
+
+test('send and typeCommand refuse CR and LF before anything goes out', async () => {
+  stubFetch({ '/Node/WebSockTerm.html': TERM });
+  const { conn, ws } = await opened();
+  expect(() => conn.send('a\rb')).toThrow(ControlCharError);
+  expect(() => conn.send('a\nb')).toThrow(ControlCharError);
+  expect(ws.sent).toEqual([]);
+  route.value = 'health';
+  expect(() => typeCommand('a\rb')).toThrow(ControlCharError);
+  expect(() => typeCommand('a\nb')).toThrow(ControlCharError);
+  expect(pendingCommand.value).toBeNull();
+  expect(route.value).toBe('health');
+  conn.close();
+});
+
+test('the terminal page is fetched with cache: no-store (each fetch mints a session key)', async () => {
+  const calls = stubFetch({ '/Node/WebSockTerm.html': TERM });
+  const { conn } = await opened();
+  expect(calls[0]?.init?.cache).toBe('no-store');
+  conn.close();
+});
+
+test('one line in flight: the node reads one frame per recv, so the next line waits for the echo', async () => {
+  stubFetch({ '/Node/WebSockTerm.html': TERM });
+  const { conn, ws } = await opened();
+  conn.send('A');
+  conn.send('B');
+  conn.send('C');
+  expect(ws.sent).toEqual(['A\r']);
+  ws.recv('\r\n');
+  expect(ws.sent).toEqual(['A\r', 'B\r']);
+  ws.recv('\r\n');
+  expect(ws.sent).toEqual(['A\r', 'B\r', 'C\r']);
+  ws.recv('\r\n');
+  conn.send('D');
+  expect(ws.sent).toEqual(['A\r', 'B\r', 'C\r', 'D\r']);
+  conn.close();
+});
+
+test('a blank output line that arrives before the echo still shows as one blank line', async () => {
+  stubFetch({ '/Node/WebSockTerm.html': TERM });
+  const { conn, ws } = await opened();
+  const lines: string[] = [];
+  conn.onLine((l) => lines.push(l));
+  conn.send('A');
+  ws.recv('\r\n'); // blank output from the poll, sent before the node read A
+  ws.recv('\r\n'); // the echo for A
+  ws.recv('reply\r\n');
+  expect(lines).toEqual(['', 'reply']);
+  conn.close();
 });

@@ -14,6 +14,9 @@ import './console.css';
  */
 export const HIDDEN_CLOSE_MS = 5 * 60_000;
 
+/** Reconnect clicks closer together than this are ignored. */
+const RECONNECT_GAP_MS = 1000;
+
 /** Scrollback kept on screen; older lines drop off the top. */
 const MAX_LINES = 5000;
 
@@ -21,7 +24,7 @@ const MAX_LINES = 5000;
 export const QUICK_COMMANDS = ['?', 'PORTS', 'NODES', 'ROUTES', 'USERS'] as const;
 
 /** A node or BBS asking for a password: mask the input and its echo. */
-const SECRET_PROMPT = /pass(?:word)?\s*[:>]?\s*$/i;
+const SECRET_PROMPT = /\bpass(?:word)?\s*[:>]?\s*$/i;
 const MASK = '********';
 
 const QUICK_LABELS: Record<(typeof QUICK_COMMANDS)[number], string> = {
@@ -56,9 +59,8 @@ export function Console() {
   const out = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
 
-  const lastOut = [...entries].reverse().find((e) => e.kind === 'out');
-  const secret = SECRET_PROMPT.test(partial) || (partial === '' && !!lastOut && SECRET_PROMPT.test(lastOut.text)
-    && entries[entries.length - 1] === lastOut);
+  const last = entries[entries.length - 1];
+  const secret = SECRET_PROMPT.test(partial) || (partial === '' && last?.kind === 'out' && SECRET_PROMPT.test(last.text));
 
   const add = (e: Omit<Entry, 'id'>) => setEntries((es) => {
     const next = [...es, { ...e, id: nextId.current++ }];
@@ -103,6 +105,22 @@ export function Console() {
       }
     });
   };
+
+  // Each connect makes the node allocate a session it keeps until its idle kill: one per second at most.
+  const lastReconnect = useRef(0);
+  const reconnect = () => {
+    const now = Date.now();
+    if (now - lastReconnect.current < RECONNECT_GAP_MS) return;
+    lastReconnect.current = now;
+    connect();
+  };
+
+  // typeCommand while this screen is already open and connected: send at once.
+  useEffect(() => pendingCommand.subscribe((cmd) => {
+    if (cmd === null || conn.current?.status !== 'open') return;
+    const c = takePendingCommand();
+    if (c) sendLine(c);
+  }), []);
 
   useEffect(() => {
     connect();
@@ -163,9 +181,9 @@ export function Console() {
         <h1>Console</h1>
         <span class="sub">{status === 'closed' ? reason ?? 'Closed' : STATUS_TEXT[status]}</span>
         <div class="title-actions">
-          {status === 'closed'
-            ? <button type="button" class="btn primary" onClick={connect}>Reconnect</button>
-            : <button type="button" class="btn" onClick={() => conn.current?.close('Disconnected')}>Disconnect</button>}
+          {status === 'open'
+            ? <button key="disconnect" type="button" class="btn" onClick={() => conn.current?.close('Disconnected')}>Disconnect</button>
+            : <button key="reconnect" type="button" class="btn primary" disabled={status === 'connecting'} onClick={reconnect}>Reconnect</button>}
         </div>
       </div>
       <section class="term term-full" aria-label="Node console">

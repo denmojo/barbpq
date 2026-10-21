@@ -28,6 +28,7 @@ export function ConfirmDialog({ title, command, children, confirmLabel, onConfir
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation(); // the dialog owns this Escape; nothing behind it should also react
       onCancel();
     } else if (e.key === 'Tab') {
       // Two buttons: keep focus inside the dialog.

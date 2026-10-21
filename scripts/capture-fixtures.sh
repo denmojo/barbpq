@@ -27,6 +27,9 @@ get "$BASE/Node/Routes.html" >"$OUT/node-routes.html"
 # Protected page without a session: the not-authorized reply
 get "$BASE/node/ShowLog.html?date=2026-10-20&NodeDebug=Node+Debug+Log" >"$OUT/node-not-authorized.html"
 
+# Web terminal page without a session: the node's terminal sign-in form
+get "$BASE/Node/WebSockTerm.html" >"$OUT/node-termsignon.html"
+
 # Sign in (staging test user), keep the cookie
 get -c "$JAR" -d 'user=sysop&password=staging' "$BASE/Node/Signon?Node" >"$OUT/node-signon.html"
 grep -q BPQSessionCookie "$JAR" || { echo "sign-in failed" >&2; exit 1; }
@@ -48,6 +51,25 @@ if tr '|' '\n' <"$OUT/mail-fwdlist.txt" | grep -qx 'RMS'; then
 else
   echo "capture-fixtures: RMS is not a forwarding partner; skipped mail-fwddetails-rms.html" >&2
 fi
+# Web terminal page with a session: its script URL carries the user's password in clear.
+# Swap it for a placeholder in the pipe, so the password never reaches the file.
+get -b "$JAR" -H 'Cache-Control: no-store' "$BASE/Node/WebSockTerm.html" | python3 -I -c '
+import re, sys
+b = sys.stdin.buffer.read()
+b, n = re.subn(rb"(WEBTERM\?T[0-9A-Fa-f]+&[^&]*&)[^&\x27\x22]*(&[0-9]+)", rb"\1hunter2x\2", b)
+if n != 1: sys.exit("capture-fixtures: no WEBTERM URL in the terminal page")
+sys.stdout.buffer.write(b)' >"$OUT/node-websockterm.html"
+# Logs: one present file (BBS, today UTC) and one the node reports missing (CMS, an old day).
+# The missing reply names the node's log path; keep only its file name.
+TODAY="$(date -u +%F)"
+get -b "$JAR" "$BASE/node/ShowLog.html?date=$TODAY&BBS=BBS+Log" >"$OUT/node-showlog-bbs.html"
+get -b "$JAR" "$BASE/node/ShowLog.html?date=2026-01-01&CMS=CMS+Log" \
+  | python3 -I -c '
+import re, sys
+b = sys.stdin.buffer.read()
+sys.stdout.buffer.write(re.sub(rb"name=Msg>Log [^<\r\n]*/(CMSAccess_[0-9]+\.log) not found", rb"name=Msg>Log logs/\1 not found", b))' \
+  >"$OUT/node-showlog-missing.html"
+
 # BBS users, white pages and messages: lists, then one record each (POSTs; the body is the call or number)
 get -b "$JAR" -X POST --data '' "$BASE/Mail/UserList.txt?$KEY" >"$OUT/mail-userlist.txt"
 get -b "$JAR" -X POST --data 'RMS' "$BASE/Mail/UserDetails?$KEY" >"$OUT/mail-userdetails-rms.html"
@@ -81,4 +103,7 @@ LEAK="$(grep -rlai 'staging' "$OUT" || true)"
 if [ -n "$LEAK" ]; then
   echo "fixture check failed: test password text in: $LEAK" >&2; exit 1
 fi
+# Guard: the terminal page's password slot holds the placeholder and nothing else.
+grep -aq 'WEBTERM?T[0-9A-Fa-f]*&[^&]*&hunter2x&' "$OUT/node-websockterm.html" \
+  || { echo "fixture check failed: node-websockterm.html password slot not scrubbed" >&2; exit 1; }
 echo "fixtures written to $OUT"

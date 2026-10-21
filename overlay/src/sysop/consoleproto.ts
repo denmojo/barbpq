@@ -15,7 +15,12 @@ import { navigate } from '../app/router';
 import { getText, NonLatin1Error, ParseError } from '../data/http';
 import { NotAuthorizedError, sysop } from '../data/session';
 
-/** Fetched as data only; no element of this UI links, frames or navigates to it. */
+/**
+ * Fetched as data only; no element of this UI links, frames or navigates to it. Each fetch makes
+ * the node allocate a 'T' session (DoWebSockTerm). Closing the socket frees its host stream
+ * (ProcessWebTermClosed), but the session record stays in the node's list until its idle kill,
+ * about 15 minutes later, so connects are rate-limited by the screen (Reconnect is debounced).
+ */
 const TERM_PAGE = '/Node/WebSockTerm.html';
 
 /** ProcessWebTermInput decodes into a 512-byte buffer; stay well inside it. */
@@ -25,6 +30,13 @@ export class LineTooLongError extends Error {
   constructor(readonly length: number) {
     super(`The line is ${length} characters; the node takes at most ${MAX_LINE}`);
     this.name = 'LineTooLongError';
+  }
+}
+
+export class ControlCharError extends Error {
+  constructor(readonly position: number) {
+    super(`The line has a control character at position ${position}; only tab is allowed`);
+    this.name = 'ControlCharError';
   }
 }
 
@@ -45,7 +57,8 @@ export function termSocketUrl(loc: { protocol: string; host: string }, key: stri
 
 /**
  * One typed line as the node must receive it. % and + are escaped so the node's decoder gives
- * them back; U+0080-U+00FF go as %XX bytes, so the frame is plain ASCII.
+ * them back; U+0080-U+00FF go as %XX bytes, so the frame is plain ASCII. Control characters
+ * other than tab are refused.
  */
 export function encodeLine(text: string): string {
   if (text.length > MAX_LINE) throw new LineTooLongError(text.length);
@@ -53,6 +66,8 @@ export function encodeLine(text: string): string {
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
     if (c > 0xff) throw new NonLatin1Error(i, text[i] as string);
+    // A CR or LF would make the node run the rest as a second command.
+    if (c < 0x20 && c !== 0x09) throw new ControlCharError(i);
     if (c === 0x25 || c === 0x2b || c >= 0x80) out += `%${c.toString(16).toUpperCase().padStart(2, '0')}`;
     else out += text[i];
   }
@@ -115,7 +130,15 @@ export function openConsole(): ConsoleConn {
   const splitter = new OutputSplitter();
   let status = 'connecting' as ConsoleStatus;
   let ws: WebSocket | null = null;
-  let echoes = 0;
+  // TelnetV6.c handles one WebSocket frame per recv() and drops the rest of the buffer
+  // (InputLen = 0), so two frames that coalesce lose the second. Keep one line in flight: the
+  // node's CRLF echo is sent while it handles the line, so after the echo the next may go.
+  let awaitingEcho = false;
+  const queue: string[] = [];
+  const write = (frame: string) => {
+    ws?.send(frame);
+    awaitingEcho = true;
+  };
 
   const setStatus = (s: ConsoleStatus, reason?: string) => {
     status = s;
@@ -143,7 +166,8 @@ export function openConsole(): ConsoleConn {
   void (async () => {
     let key: string;
     try {
-      key = parseTermKey(await getText(TERM_PAGE));
+      // no-store: each fetch must reach the node, which mints a fresh session key.
+      key = parseTermKey(await getText(TERM_PAGE, { cache: 'no-store' }));
     } catch (e) {
       finish(e instanceof NotAuthorizedError ? SIGNED_OUT
         : `Could not start a console: ${e instanceof Error ? e.message : String(e)}`);
@@ -155,7 +179,15 @@ export function openConsole(): ConsoleConn {
     sock.onopen = () => setStatus('open');
     sock.onmessage = (e: MessageEvent) => {
       if (typeof e.data !== 'string') return;
-      if (echoes > 0 && e.data === '\r\n') { echoes--; return; }
+      // Frames carry no tag: the first bare CRLF after a send is taken as its echo. A blank
+      // output line that comes first is taken instead and the echo then shows as that blank
+      // line, so the screen reads the same.
+      if (awaitingEcho && e.data === '\r\n') {
+        awaitingEcho = false;
+        const next = queue.shift();
+        if (next !== undefined) write(next);
+        return;
+      }
       for (const l of splitter.push(e.data)) lines.emit(l);
       partials.emit(splitter.partial);
     };
@@ -167,8 +199,8 @@ export function openConsole(): ConsoleConn {
     send(line: string) {
       if (status !== 'open' || !ws) throw new Error('The console is not connected');
       const frame = encodeLine(line);
-      ws.send(frame);
-      echoes++;
+      if (awaitingEcho) queue.push(frame);
+      else write(frame);
       splitter.clear();
       partials.emit('');
     },
@@ -184,6 +216,7 @@ export const pendingCommand = signal<string | null>(null);
 
 /** Open the console screen and type `text` there once it connects. */
 export function typeCommand(text: string): void {
+  encodeLine(text); // refuse a line the node cannot take before opening anything
   pendingCommand.value = text;
   navigate('console');
 }

@@ -173,39 +173,12 @@ test('health: the Console card sits beside Recent changes and its pills type a r
   pendingCommand.value = null;
 });
 
-test('health: Restart node asks first in an in-app dialog showing the exact command', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm');
-  const alertSpy = vi.spyOn(window, 'alert');
+test('health has no node-state shortcuts: no Restart node, no Test CMS now (the gateway runs unsupervised)', async () => {
   render(<SysopLayout />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Restart node' }));
-  const dlg = screen.getByRole('alertdialog', { name: 'Restart node?' });
-  expect(within(dlg).getByText('RESTART', { selector: 'code' })).toBeInTheDocument();
-  expect(pendingCommand.value).toBeNull();
-  fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
-  expect(screen.queryByRole('alertdialog')).toBeNull();
-  expect(pendingCommand.value).toBeNull();
-  expect(route.value).toBe('health');
-
-  fireEvent.click(screen.getByRole('button', { name: 'Restart node' }));
-  fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
-  expect(screen.queryByRole('alertdialog')).toBeNull();
-  expect(pendingCommand.value).toBeNull();
-
-  fireEvent.click(screen.getByRole('button', { name: 'Restart node' }));
-  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Send RESTART' }));
-  expect(pendingCommand.value).toBe('RESTART');
-  expect(route.value).toBe('console');
-  expect(confirmSpy).not.toHaveBeenCalled();
-  expect(alertSpy).not.toHaveBeenCalled();
-  pendingCommand.value = null;
-  confirmSpy.mockRestore();
-  alertSpy.mockRestore();
-});
-
-test('health has no Test CMS now shortcut: the node has no CMS test command', async () => {
-  render(<SysopLayout />);
-  await screen.findByRole('button', { name: 'Restart node' });
+  await screen.findByRole('region', { name: 'Console' });
+  expect(screen.queryByRole('button', { name: /Restart/ })).toBeNull();
   expect(screen.queryByRole('button', { name: /Test CMS/ })).toBeNull();
+  expect(screen.queryByText('RESTART')).toBeNull();
 });
 
 test('the palette carries console commands that type into the console', async () => {
@@ -216,7 +189,7 @@ test('the palette carries console commands that type into the console', async ()
   expect(route.value).toBe('console');
   expect(pendingCommand.value).toBe('?');
   pendingCommand.value = null;
-  expect(paletteItems().some((i) => /RESTART/i.test(i.label))).toBe(false);
+  expect(paletteItems().some((i) => /RESTART|REBOOT|STARTCMS/i.test(i.label))).toBe(false);
 });
 
 test('the sysop document title is the call from /api/info and the public name', async () => {

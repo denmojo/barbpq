@@ -53,9 +53,9 @@ export async function getJson<T>(url: string): Promise<T> {
   return parseLooseJson(await res.text()) as T;
 }
 
-/** GET an old page; the body is decoded as ISO-8859-1. */
-export async function getText(url: string): Promise<string> {
-  const res = await request(url, {});
+/** GET an old page; the body is decoded as ISO-8859-1. `init` adds fetch options (e.g. cache). */
+export async function getText(url: string, init: RequestInit = {}): Promise<string> {
+  const res = await request(url, init);
   return decodeLatin1(await res.arrayBuffer());
 }
 

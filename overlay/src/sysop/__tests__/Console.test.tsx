@@ -161,19 +161,48 @@ test('a tab hidden for the timeout closes the socket; a shorter absence keeps it
 });
 
 test('a command queued by typeCommand is sent once the console connects, once', async () => {
-  typeCommand('RESTART');
+  typeCommand('PORTS');
   render(<Console />);
   const ws = await connected();
-  expect(ws.sent).toEqual(['RESTART\r']);
-  expect(screen.getByRole('log', { name: 'Console output' }).querySelector('.in')).toHaveTextContent('RESTART');
+  expect(ws.sent).toEqual(['PORTS\r']);
+  expect(screen.getByRole('log', { name: 'Console output' }).querySelector('.in')).toHaveTextContent('PORTS');
   expect(pendingCommand.value).toBeNull();
 });
 
 test('a queued command is dropped, and says so, when the console cannot connect', async () => {
   stubFetch({ '/Node/WebSockTerm.html': '<html>no terminal</html>' });
-  typeCommand('RESTART');
+  typeCommand('PORTS');
   render(<Console />);
-  expect(await screen.findByText(/RESTART was not sent/)).toBeInTheDocument();
+  expect(await screen.findByText(/PORTS was not sent/)).toBeInTheDocument();
   expect(pendingCommand.value).toBeNull();
   expect(FakeWS.all).toHaveLength(0);
+});
+
+test('typeCommand while the console is already open sends at once', async () => {
+  render(<Console />);
+  const ws = await connected();
+  act(() => typeCommand('USERS'));
+  expect(ws.sent).toEqual(['USERS\r']);
+  expect(pendingCommand.value).toBeNull();
+});
+
+test('Reconnect is debounced: a double click opens one socket', async () => {
+  render(<Console />);
+  const ws = await connected();
+  act(() => ws.serverClose('Session Timeout'));
+  const btn = await screen.findByRole('button', { name: 'Reconnect' });
+  fireEvent.click(btn);
+  fireEvent.click(btn);
+  await waitFor(() => expect(FakeWS.all).toHaveLength(2));
+  await new Promise((r) => setTimeout(r, 30));
+  expect(FakeWS.all).toHaveLength(2);
+});
+
+test('only a password word masks the input: a prompt ending in "Compass>" does not', async () => {
+  render(<Console />);
+  const ws = await connected();
+  act(() => ws.recv('Compass> '));
+  expect(screen.getByLabelText('Command')).toHaveAttribute('type', 'text');
+  act(() => ws.recv('\r\nPass: '));
+  expect(screen.getByLabelText('Command')).toHaveAttribute('type', 'password');
 });

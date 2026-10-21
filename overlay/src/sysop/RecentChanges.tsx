@@ -30,10 +30,10 @@ export function describeEvent(e: UiEvent): { tone: 'ok' | 'warn' | 'info'; text:
 }
 
 /** The node's event log, newest first as the node lists it. */
-export function RecentChanges({ events, span = 5 }: { events: Poll<UiEvent[]>; span?: 5 | 12 }) {
+export function RecentChanges({ events }: { events: Poll<UiEvent[]> }) {
   const list = events.data;
   return (
-    <Card title="Recent changes" span={span}>
+    <Card title="Recent changes" span={5}>
       {events.error && !list && <ErrorNote error={events.error} />}
       {!list && !events.error && <Skel />}
       {list && (list.length ? (

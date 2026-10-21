@@ -1,10 +1,9 @@
 import type { ComponentChildren } from 'preact';
-import { useMemo, useState } from 'preact/hooks';
+import { useMemo } from 'preact/hooks';
 import { usePoll, type Poll } from '../data/poll';
 import { getCms, getEvents, getLinkStates } from '../data/uiapi';
 import type { CmsState, LinkState, StationPort, UiEvent } from '../data/uiapi';
 import { Card } from '../ui/Card';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { ErrorNote } from '../ui/ErrorNote';
 import { OfflineBanner } from '../ui/OfflineBanner';
 import { Pending, Skel } from '../ui/Skel';
@@ -107,9 +106,6 @@ function MailCard({ status, fwd }: { status: Poll<MailStatus>; fwd: Poll<Forward
   );
 }
 
-/** Cmd.c RESTART (Cmd.c:4793, handler at 495): on Linux it sets CLOSING and linbpq exits. */
-const RESTART = 'RESTART';
-
 function ConsoleCard() {
   return (
     <Card title="Console" span={7} more={{ href: '#/console', label: 'Open full →' }}>
@@ -125,7 +121,6 @@ function ConsoleCard() {
 }
 
 export function Health() {
-  const [confirm, setConfirm] = useState(false);
   const shell = useShell();
   const links = usePoll(getLinkStates, HEALTH_POLL_MS);
   const cms = usePoll(getCms, HEALTH_POLL_MS);
@@ -141,21 +136,7 @@ export function Health() {
       <div class="titlebar">
         <h1>Health</h1>
         <span class="sub">{checked ? `Checked ${formatClock(checked)}` : 'Checking'} · every {HEALTH_POLL_MS / 1000} s</span>
-        <div class="title-actions">
-          <button type="button" class="btn" onClick={() => setConfirm(true)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" /></svg>
-            Restart node
-          </button>
-        </div>
       </div>
-      {confirm && (
-        <ConfirmDialog title="Restart node?" command={RESTART} confirmLabel={`Send ${RESTART}`}
-          onCancel={() => setConfirm(false)}
-          onConfirm={() => { setConfirm(false); typeCommand(RESTART); }}>
-          <p>linbpq shuts down and every connected station and session drops. It starts again only if a
-            service manager such as systemd restarts it; otherwise it stays down until someone starts it.</p>
-        </ConfirmDialog>
-      )}
       <OfflineBanner show={stale} since={checked} />
 
       <ul class="health" aria-label="Health checks">
@@ -169,7 +150,7 @@ export function Health() {
       <div class="grid">
         <OutageRoute fwd={shell.fwd} status={shell.status} ports={ports} />
         <MailCard status={shell.status} fwd={shell.fwd} />
-        <RecentChanges events={recent} span={5} />
+        <RecentChanges events={recent} />
         <ConsoleCard />
       </div>
       <Footer version={shell.station.data?.version} updated={checked} />
