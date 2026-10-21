@@ -66,15 +66,28 @@ function blocks(info: CfgLine[]): Block[] {
     b.lines.push(line);
   }
   for (const b of out) {
-    const pn = b.lines.find((l) => l.section === 'port' && l.key === 'PORTNUM');
+    const pn = portKey(b, 'PORTNUM');
     const n = pn ? Number.parseInt(valueOf(pn), 10) : Number.NaN;
     if (Number.isFinite(n)) b.number = n;
   }
   return out;
 }
 
-const portKey = (b: Block, key: string): CfgLine | undefined =>
-  b.lines.find((l) => l.section === 'port' && l.key === key);
+/** A port-level keyword line of the block. Lines inside a block comment do not count: config.c skips them. */
+function portKey(b: Block, key: string): CfgLine | undefined {
+  return b.lines.find((l) => l.section === 'port' && l.kind !== 'comment' && l.key === key);
+}
+
+/** The one test for a Telnet port, shared by the user list, setUser and the users form: DRIVER=TELNET. */
+function isTelnet(b: Block): boolean {
+  const drv = portKey(b, 'DRIVER');
+  return !!drv && valueOf(drv).toUpperCase() === 'TELNET';
+}
+
+/** Numbers of the Telnet ports (DRIVER=TELNET), whose CONFIG text holds the USER lines. */
+export function telnetPorts(text: string): number[] {
+  return blocks(scanCfg(text)).filter(isTelnet).map((b) => b.number);
+}
 
 export function listPorts(text: string): PortBlock[] {
   return blocks(scanCfg(text)).map((b) => {
@@ -107,9 +120,11 @@ export function setTxtail(text: string, port: number, ms: number): string {
     const t = tail.text;
     put(l, i, t.replace(/^(\s*TXTAIL\s*=?\s*)[^\s;]*/i, `$1${ms}`));
   } else {
-    const after = portKey(b, 'PORTNUM') ?? (b.lines[0] as CfgLine);
-    const next = b.lines.find((x) => x.n > after.n && x.kind !== 'blank');
-    const indent = /^[ \t]*/.exec(next?.text ?? ' ')?.[0] ?? ' ';
+    const portnum = portKey(b, 'PORTNUM');
+    const after = portnum ?? (b.lines[0] as CfgLine);
+    // Indent like PORTNUM=, else like the next keyword line, else one space.
+    const like = portnum ?? b.lines.find((x) => x.n > after.n && x.section === 'port' && x.kind === 'keyword');
+    const indent = like ? (/^[ \t]*/.exec(like.text) as RegExpExecArray)[0] : ' ';
     insertAfter(l, after.n - 1, `${indent}TXTAIL=${ms}`);
   }
   return l.lines.join('\n');
@@ -182,8 +197,7 @@ interface UserLine { line: CfgLine; port: number; fields: string[] }
 function userLines(info: CfgLine[]): UserLine[] {
   const out: UserLine[] = [];
   for (const b of blocks(info)) {
-    const drv = portKey(b, 'DRIVER');
-    if (!drv || valueOf(drv).toUpperCase() !== 'TELNET') continue;
+    if (!isTelnet(b)) continue;
     for (const line of b.lines) {
       if (line.kind !== 'driver' || !/^\s*USER[= ]/i.test(line.text)) continue;
       const value = line.text.replace(/^\s*USER[= ]/i, '').split(';')[0] as string;
@@ -250,8 +264,7 @@ export function setUser(text: string, rec: UserRecord, password?: string): strin
   }
   if (!password) throw new Error(`New user ${user} needs a password`);
   const b = blocks(l.info).find((x) => x.number === rec.port);
-  const drv = b && portKey(b, 'DRIVER');
-  if (!b || !drv || valueOf(drv).toUpperCase() !== 'TELNET') throw new Error(`Port ${rec.port} is not a Telnet port`);
+  if (!b || !isTelnet(b)) throw new Error(`Port ${rec.port} is not a Telnet port`);
   const mine = all.filter((u) => u.port === rec.port);
   const lastUser = mine[mine.length - 1];
   if (lastUser) {

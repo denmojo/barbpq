@@ -1,4 +1,4 @@
-import { listApplications, listPorts, listUsers, setApplication, setTxtail, setUser } from '../cfgforms';
+import { listApplications, listPorts, listUsers, setApplication, setTxtail, setUser, telnetPorts } from '../cfgforms';
 import { CMS_PASSWORD, SAMPLE_CFG, USER_PASSWORD } from './sample';
 
 /** Line numbers (1-based) where two texts differ; both must have the same line count. */
@@ -96,4 +96,28 @@ test('setUser adds a new user after the last USER line of its port, and needs a 
   expect(() => setUser(SAMPLE_CFG, rec, 'a,b')).toThrow(/comma/);
   expect(() => setUser(SAMPLE_CFG, rec, 'a b')).toThrow(/space/);
   expect(() => setUser(SAMPLE_CFG, { ...rec, port: 2 }, 'pw1')).toThrow(/Telnet/);
+});
+
+test('a TXTAIL or PORTNUM inside a /* */ comment in a PORT block is ignored, as config.c ignores it', () => {
+  const t = 'NODECALL=N0CALL\nPORT\n PORTNUM=2\n/* old\n TXTAIL=20\n PORTNUM=7\n*/\n TXTAIL=50\nENDPORT\n';
+  expect(listPorts(t).map(({ number, txtail }) => ({ number, txtail }))).toEqual([{ number: 2, txtail: 50 }]);
+  expect(setTxtail(t, 2, 110)).toBe(t.replace(' TXTAIL=50', ' TXTAIL=110'));
+  expect(() => setTxtail(t, 7, 110)).toThrow(/No PORT block with PORTNUM=7/);
+});
+
+test('a commented PORTNUM before the live one does not number the port, and a commented TXTAIL is not rewritten', () => {
+  const t = 'NODECALL=N0CALL\nPORT\n/*\n PORTNUM=7\n TXTAIL=1\n*/\n PORTNUM=3\nENDPORT\n';
+  expect(listPorts(t).map(({ number, txtail }) => ({ number, txtail }))).toEqual([{ number: 3, txtail: null }]);
+  expect(setTxtail(t, 3, 9)).toBe('NODECALL=N0CALL\nPORT\n/*\n PORTNUM=7\n TXTAIL=1\n*/\n PORTNUM=3\n TXTAIL=9\nENDPORT\n');
+});
+
+test('telnetPorts, listUsers and setUser share one test: DRIVER=TELNET outside a comment', () => {
+  const commented = 'NODECALL=N0CALL\nPORT\n PORTNUM=1\n/*\n DRIVER=TELNET\n*/\n DRIVER=KISS\n CONFIG\n USER=a,pw,N0CALL\nENDPORT\n';
+  expect(telnetPorts(commented)).toEqual([]);
+  expect(listUsers(commented)).toEqual([]);
+  const byProtocol = 'NODECALL=N0CALL\nPORT\n PORTNUM=4\n PROTOCOL=TELNET\n CONFIG\n USER=a,pw,N0CALL\nENDPORT\n';
+  expect(telnetPorts(byProtocol)).toEqual([]);
+  expect(listUsers(byProtocol)).toEqual([]);
+  expect(() => setUser(byProtocol, { port: 4, user: 'b', password: null, call: 'N0B', appl: '', sysop: false }, 'pw')).toThrow(/not a Telnet port/);
+  expect(telnetPorts(SAMPLE_CFG)).toEqual([1]);
 });

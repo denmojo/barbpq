@@ -9,12 +9,13 @@ import { Tabs } from '../../ui/Tabs';
 import { Unknown } from '../../ui/Unknown';
 import { Footer } from '../../public/Footer';
 import { registerPaletteItems } from '../palette';
-import { checkCfg } from './cfgcheck';
+import { analyzeCfg } from './cfgcheck';
 import {
-  listApplications, listPorts, listUsers, setApplication, setTxtail, setUser,
+  listApplications, listPorts, listUsers, setApplication, setTxtail, setUser, telnetPorts,
   type Application, type PortBlock, type UserRecord,
 } from './cfgforms';
-import { changeSummary, ConfigEditor, lineDiff } from './ConfigEditor';
+import { ConfigEditor } from './ConfigEditor';
+import { changeSummary, lineDiff } from './cfgdiff';
 import {
   cfgDraft, cfgLoad, cfgLoaded, cfgSave, discardDraft, editDraft, loadConfig, restartNeeded, saveDraft,
   settingsTab, type SettingsTab,
@@ -194,7 +195,9 @@ function UserRow({ rec }: { rec: UserRecord }) {
 }
 
 function NewUserRow({ ports }: { ports: number[] }) {
-  const [port, setPort] = useState(ports[0] as number);
+  const [picked, setPort] = useState(ports[0] as number);
+  // Follow the Telnet port list: a port that is gone (renumbered, removed) falls back to the first.
+  const port = ports.includes(picked) ? picked : (ports[0] as number);
   const [user, setUserName] = useState('');
   const [call, setCall] = useState('');
   const [appl, setAppl] = useState('');
@@ -204,8 +207,8 @@ function NewUserRow({ ports }: { ports: number[] }) {
   const onAdd = (): void => {
     const e = apply((t) => setUser(t, { port, user, password: null, call, appl, sysop: isSysop }, pw));
     setErr(e);
-    setPw('');
-    if (!e) { setUserName(''); setCall(''); setAppl(''); setSysop(false); }
+    // On failure keep what was typed, password included, so the sysop can correct one field.
+    if (!e) { setUserName(''); setCall(''); setAppl(''); setSysop(false); setPw(''); }
   };
   return (
     <tr class="new-row">
@@ -232,7 +235,7 @@ function NewUserRow({ ports }: { ports: number[] }) {
 
 function UsersForm({ text }: { text: string }) {
   const users = useMemo(() => listUsers(text), [text]);
-  const telnet = useMemo(() => listPorts(text).filter((p) => p.driver === 'TELNET').map((p) => p.number), [text]);
+  const telnet = useMemo(() => telnetPorts(text), [text]);
   return (
     <Card title="Telnet users" span={12}>
       <p class="muted form-hint">USER lines of the Telnet port. Passwords are not shown; type a new one only to change it.</p>
@@ -261,8 +264,11 @@ export function NodeSettings() {
   const save = cfgSave.value;
   const tab = settingsTab.value;
 
-  const issues = useMemo(() => (draft === null ? [] : checkCfg(draft)), [draft]);
-  const changes = useMemo(() => (draft === null || loaded === null ? 'No changes' : changeSummary(lineDiff(loaded, draft))), [loaded, draft]);
+  // One scan and one diff per edit, shared by the check, the title bar and the editor.
+  const analysis = useMemo(() => (draft === null ? null : analyzeCfg(draft)), [draft]);
+  const issues = analysis?.issues ?? [];
+  const diff = useMemo(() => (draft === null || loaded === null ? [] : lineDiff(loaded, draft)), [loaded, draft]);
+  const changes = changeSummary(diff);
   const size = useMemo(() => (draft === null ? null : bodySize(draft)), [draft]);
   const errors = issues.filter((i) => i.severity === 'error').length;
   const tooLarge = size !== null && size > CFG_SAVE_LIMIT;
@@ -314,7 +320,7 @@ export function NodeSettings() {
         <>
           <Tabs items={TABS} value={tab} onChange={(id) => { settingsTab.value = id as SettingsTab; }} label="Settings sections" />
           <div class="grid settings-grid">
-            {tab === 'file' && <ConfigEditor value={draft} original={loaded} issues={issues} onInput={editDraft} />}
+            {tab === 'file' && <ConfigEditor value={draft} lines={analysis?.lines ?? []} issues={issues} diff={diff} onInput={editDraft} />}
             {tab === 'ports' && <PortsForm text={draft} />}
             {tab === 'apps' && <AppsForm text={draft} />}
             {tab === 'users' && <UsersForm text={draft} />}

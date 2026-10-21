@@ -1,6 +1,6 @@
 process.env.TZ = 'America/Los_Angeles';
 
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/preact';
+import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/preact';
 import { App } from '../../../app/App';
 import { route } from '../../../app/router';
 import { sysop } from '../../../data/session';
@@ -10,8 +10,8 @@ import { fixture, stubFetch } from '../../../data/__tests__/helpers';
 import { expectNoOldPageLinks, prime } from '../../../public/__tests__/prime';
 import { NOW } from '../../../public/__tests__/sample';
 import { paletteItems } from '../../palette';
-import { changeSummary, lineDiff } from '../ConfigEditor';
-import { cfgDraft, resetSettings } from '../draft';
+import { changeSummary, lineDiff } from '../cfgdiff';
+import { cfgDraft, editDraft, resetSettings } from '../draft';
 import { CMS_PASSWORD, editPage, SAMPLE_CFG, SAVED_REPLY, USER_PASSWORD } from './sample';
 
 vi.mock('../../../data/api', async () => (await import('../../../public/__tests__/mocks')).MOCK_API());
@@ -294,4 +294,40 @@ test('changeSummary pairs a removed and an added line as one change and counts t
   expect(changeSummary(lineDiff('a\nb\nc\nd\n', 'a\nB\nd\n'))).toBe('1 line changed, 1 removed');
   expect(changeSummary(lineDiff('a\n', 'a\nb\nc\n'))).toBe('2 lines added');
   expect(changeSummary(lineDiff('a\nb\n', 'a\n'))).toBe('1 line removed');
+});
+
+test('a new user that fails to apply keeps its typed password', async () => {
+  nodePages();
+  render(<App />);
+  await editor();
+  fireEvent.click(screen.getByRole('tab', { name: 'Telnet users' }));
+  fireEvent.input(screen.getByLabelText('New user name'), { target: { value: 'a,b' } });
+  fireEvent.input(screen.getByLabelText('Callsign for the new user'), { target: { value: 'N0AB' } });
+  fireEvent.input(screen.getByLabelText('Password for the new user'), { target: { value: 'pw1' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
+  expect(screen.getByRole('alert')).toHaveTextContent(/comma/);
+  expect(screen.getByLabelText('Password for the new user')).toHaveValue('pw1');
+  expect(cfgDraft.value).toBe(SAMPLE_CFG);
+});
+
+test('the new-user row follows the Telnet port when its number changes', async () => {
+  nodePages();
+  render(<App />);
+  await editor();
+  fireEvent.click(screen.getByRole('tab', { name: 'Telnet users' }));
+  act(() => editDraft(SAMPLE_CFG.replace(' PORTNUM=1', ' PORTNUM=5')));
+  fireEvent.input(screen.getByLabelText('New user name'), { target: { value: 'kid' } });
+  fireEvent.input(screen.getByLabelText('Callsign for the new user'), { target: { value: 'KK6XYZ' } });
+  fireEvent.input(screen.getByLabelText('Password for the new user'), { target: { value: 'pw1' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(cfgDraft.value).toContain(' USER=kid,pw1,KK6XYZ\n');
+});
+
+test('a port named TELNET only by PROTOCOL= gets no user form, matching setUser', async () => {
+  nodePages({ '/Node/EditCfg.html': editPage('NODECALL=N0CALL\nPORT\n PORTNUM=4\n PROTOCOL=TELNET\n CONFIG\nENDPORT\n') });
+  render(<App />);
+  await editor();
+  fireEvent.click(screen.getByRole('tab', { name: 'Telnet users' }));
+  expect(screen.getByText('No Telnet port (DRIVER=TELNET) in bpq32.cfg.')).toBeInTheDocument();
 });

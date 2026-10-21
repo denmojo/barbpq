@@ -228,6 +228,11 @@ function scan(text: string): Scan {
   return { lines, issues };
 }
 
+/** Lines and issues from one pass, for a caller that needs both. */
+export function analyzeCfg(text: string): { lines: CfgLine[]; issues: Issue[] } {
+  return scan(text);
+}
+
 /** Every line, classified. */
 export function scanCfg(text: string): CfgLine[] {
   return scan(text).lines;
