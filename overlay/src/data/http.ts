@@ -18,9 +18,15 @@ export class ParseError extends Error {
   }
 }
 
-/** Old node pages are ISO-8859-1: one byte is one character. */
+/** Old node pages are ISO-8859-1: one byte is one character (U+0000-U+00FF), no remapping. */
 export function decodeLatin1(buf: ArrayBuffer): string {
-  return new TextDecoder('iso-8859-1').decode(buf);
+  // Not TextDecoder('iso-8859-1'): browsers treat that label as windows-1252, which remaps 0x80-0x9F.
+  const bytes = new Uint8Array(buf);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    out += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return out;
 }
 
 /**
@@ -66,9 +72,17 @@ export async function postBody(url: string, body: Uint8Array): Promise<string> {
   return decodeLatin1(await res.arrayBuffer());
 }
 
+/** Text holds a character the node cannot receive (above U+00FF). */
+export class NonLatin1Error extends Error {
+  constructor(readonly position: number, readonly char: string) {
+    super(`Character "${char}" at position ${position} cannot be sent to the node (not ISO-8859-1)`);
+    this.name = 'NonLatin1Error';
+  }
+}
+
 /**
  * Percent-encode text the way the node's decoder reads it: uppercase %XX, space as +,
- * one byte per character (ISO-8859-1). Characters above U+00FF have no byte and become '?'.
+ * one byte per character (ISO-8859-1). Throws NonLatin1Error for a character above U+00FF.
  */
 export function encodeLatin1Form(text: string): string {
   let out = '';
@@ -77,7 +91,8 @@ export function encodeLatin1Form(text: string): string {
     const ch = text[i] as string;
     if (/[A-Za-z0-9\-_.~]/.test(ch)) out += ch;
     else if (code === 0x20) out += '+';
-    else out += '%' + (code > 0xff ? 0x3f : code).toString(16).toUpperCase().padStart(2, '0');
+    else if (code > 0xff) throw new NonLatin1Error(i, String.fromCodePoint(text.codePointAt(i) ?? code));
+    else out += '%' + code.toString(16).toUpperCase().padStart(2, '0');
   }
   return out;
 }

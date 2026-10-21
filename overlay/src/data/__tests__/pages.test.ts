@@ -1,6 +1,6 @@
-import { parseStats, parseRoutes, parseMailKey, parseLogList, parseLogText, logUrl } from '../pages';
+import { parseStats, parseRoutes, parseMailKey, parseLogList, parseLogText, fetchLog } from '../pages';
 import { ParseError } from '../http';
-import { fixture } from './helpers';
+import { fixture, stubFetch } from './helpers';
 
 test('parseStats reads the fork version and numeric counters from the staging page', () => {
   const s = parseStats(fixture('node-stats.html'));
@@ -50,11 +50,28 @@ test('parseMailKey reads the key from menu links, null when absent', () => {
 test('parseLogList reads the View Logs buttons from the node menu', () => {
   const l = parseLogList(fixture('node-signon.html'));
   expect(l.map((f) => f.param)).toEqual(['NodeDebug', 'BBS', 'Debug', 'Telnet', 'CMS', 'Chat']);
-  expect(logUrl(l[0]!, '2026-10-20')).toBe('/node/ShowLog.html?date=2026-10-20&NodeDebug=Node+Debug+Log');
   expect(() => parseLogList('<html></html>')).toThrow(ParseError);
 });
 
 test('parseLogText returns the textarea body', () => {
   expect(parseLogText('<textarea id=log name=Msg>line 1\nline 2</textarea>')).toBe('line 1\nline 2');
   expect(() => parseLogText('<p>x</p>')).toThrow(ParseError);
+});
+
+test('fetchLog requests the dated log and returns its text; a signed-out reply is not authorized', async () => {
+  const calls = stubFetch({
+    '/node/ShowLog.html?date=2026-10-20&NodeDebug=Node+Debug+Log': '<textarea id=log name=Msg>entry</textarea>',
+  });
+  expect(await fetchLog({ label: 'Node Debug Log', param: 'NodeDebug' }, '2026-10-20')).toBe('entry');
+  expect(calls).toHaveLength(1);
+  vi.unstubAllGlobals();
+  stubFetch({ '/node/ShowLog.html?date=2026-10-20&BBS=BBS+Log': fixture('node-not-authorized.html') });
+  await expect(fetchLog({ label: 'BBS Log', param: 'BBS' }, '2026-10-20')).rejects.toThrow(/sign in/);
+  vi.unstubAllGlobals();
+});
+
+test('parseStats: a blank counter cell throws instead of reading as 0', () => {
+  const html = fixture('node-stats.html').replace('<td align=right>999</td><td align=right>999</td>', '<td align=right>999</td><td align=right> </td>');
+  expect(html).not.toBe(fixture('node-stats.html'));
+  expect(() => parseStats(html)).toThrow(/Buffers/);
 });

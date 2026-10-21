@@ -1,6 +1,6 @@
 // Parse the node's old HTML forms and post them back. The user never sees these pages.
 import { encodeLatin1Form, getText, latin1Bytes, ParseError, postBody } from './http';
-import { assertAuthorized } from './session';
+import { assertAuthorized, getProtected, withSysop } from './session';
 
 export interface FieldOption { value: string; label: string; selected: boolean }
 export interface FormField {
@@ -117,4 +117,26 @@ export function encodeCfgSave(text: string): Uint8Array {
 
 export function cfgSaveTooLarge(body: Uint8Array): boolean {
   return body.length > CFG_SAVE_LIMIT;
+}
+
+/** Config text encodes to more than the node accepts in one request. */
+export class CfgTooLargeError extends Error {
+  constructor(readonly bytes: number) {
+    super(`Config body is ${bytes} bytes; the limit is ${CFG_SAVE_LIMIT}`);
+    this.name = 'CfgTooLargeError';
+  }
+}
+
+/**
+ * Save bpq32.cfg. Encodes first (NonLatin1Error / CfgTooLargeError before any request), then
+ * reads the Edit Config form for its session-keyed action and posts the body, retrying once
+ * after a sign-in if the node asks for one.
+ */
+export async function saveConfig(text: string): Promise<void> {
+  const body = encodeCfgSave(text);
+  if (cfgSaveTooLarge(body)) throw new CfgTooLargeError(body.length);
+  await withSysop(async () => {
+    const spec = parseForm(await getProtected('/Node/EditCfg.html'), 0, '/Node/EditCfg.html');
+    assertAuthorized(await postBody(spec.action, body));
+  });
 }

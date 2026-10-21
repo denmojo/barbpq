@@ -1,4 +1,6 @@
-import { parseForm, submitForm, encodeCfgSave, cfgSaveTooLarge, formPairs } from '../forms';
+import { parseForm, submitForm, encodeCfgSave, cfgSaveTooLarge, formPairs, saveConfig, CfgTooLargeError } from '../forms';
+import { decodeLatin1, encodeLatin1Form, NonLatin1Error, latin1Bytes } from '../http';
+import { sysop } from '../session';
 import { parseMailKey } from '../pages';
 import { fixture, stubFetch } from './helpers';
 
@@ -92,4 +94,78 @@ test('cfgSaveTooLarge flags bodies over 99,000 bytes', () => {
   expect(cfgSaveTooLarge(new Uint8Array(99_001))).toBe(true);
   expect(cfgSaveTooLarge(encodeCfgSave('x'.repeat(98_000)))).toBe(false);
   expect(cfgSaveTooLarge(encodeCfgSave('\n'.repeat(40_000)))).toBe(true);
+});
+
+/** The node's decoder (HTTPcode.c): uppercase %XX only, + is space, CR stripped. */
+function nodeDecode(body: Uint8Array): Uint8Array {
+  const s = new TextDecoder('latin1').decode(body); // ASCII only here
+  const msg = s.slice(4, s.indexOf('&Save='));
+  const out: number[] = [];
+  for (let i = 0; i < msg.length; i++) {
+    let c = msg.charCodeAt(i);
+    if (c === 0x25) {
+      let m = msg.charCodeAt(++i) - 48; if (m > 9) m -= 7;
+      let n = msg.charCodeAt(++i) - 48; if (n > 9) n -= 7;
+      c = m * 16 + n;
+    } else if (c === 0x2b) c = 0x20;
+    if (c !== 13) out.push(c);
+  }
+  return Uint8Array.from(out);
+}
+
+test('every byte 0x00-0xFF (no CR) survives decode, textarea, encodeCfgSave and the node decoder', () => {
+  const raw: number[] = [];
+  for (let b = 0; b < 256; b++) if (b !== 13 && b !== 0) raw.push(b);
+  // NUL is left out: an HTML parser turns it into U+FFFD, and the node's C string would end there.
+  const wire = Uint8Array.from([...Array.from(raw)]);
+  const decoded = decodeLatin1(wire.buffer);
+  expect(decoded.charCodeAt(raw.indexOf(0x80))).toBe(0x80);
+  const page = `<form method=post action=x><textarea name=Msg>X${decoded}</textarea></form>`;
+  const text = parseForm(page).fields[0]!.value.slice(1);
+  expect(Array.from(latin1Bytes(text))).toEqual(raw);
+  expect(Array.from(nodeDecode(encodeCfgSave(text)))).toEqual(raw);
+});
+
+test('encodeCfgSave round-trips tab, degree sign, + % & =, CRLF and a trailing newline', () => {
+  const text = 'a\tb\u00b0c+d%e&f=g\r\nline2\n';
+  const out = nodeDecode(encodeCfgSave(text));
+  expect(new TextDecoder('latin1').decode(out)).toBe('a\tb\u00b0c+d%e&f=g\nline2\n');
+});
+
+test('a character above U+00FF throws NonLatin1Error with its position', () => {
+  expect(() => encodeLatin1Form('ab\u20acd')).toThrow(NonLatin1Error);
+  try { encodeCfgSave('ab\u20acd'); } catch (e) {
+    expect((e as NonLatin1Error).position).toBe(2);
+    expect((e as Error).message).toMatch(/position 2/);
+  }
+});
+
+test('saveConfig refuses over 99,000 bytes before any request', async () => {
+  const calls = stubFetch({});
+  const err = await saveConfig('\n'.repeat(40_000)).catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(CfgTooLargeError);
+  expect((err as CfgTooLargeError).bytes).toBeGreaterThan(99_000);
+  expect(calls).toHaveLength(0);
+  // 99,001 exactly
+  const text = 'x'.repeat(99_001 - 'Msg='.length - '&Save='.length);
+  expect(encodeCfgSave(text).length).toBe(99_001);
+  await expect(saveConfig(text)).rejects.toBeInstanceOf(CfgTooLargeError);
+  expect(calls).toHaveLength(0);
+});
+
+test('saveConfig reads the form action then posts the body, retrying after sign-in', async () => {
+  let posted: Uint8Array | undefined;
+  let first = true;
+  stubFetch({
+    '/Node/EditCfg.html': () => (first ? (first = false, '<b>Not authorized - please sign in</b>') : '<form method=post action=CFGSave?N1><textarea name=Msg></textarea></form>'),
+    '/Node/CFGSave?N1': (init) => { posted = init?.body as Uint8Array; return '<html>Configuration Saved</html>'; },
+    '/Node/Signon?Node': fixture('node-signon.html'),
+  });
+  const p = saveConfig('A B\n');
+  await vi.waitFor(() => expect(sysop.value).toBe('out'));
+  const { signIn } = await import('../session');
+  await signIn('sysop', 'staging');
+  await p;
+  expect(new TextDecoder('latin1').decode(posted)).toBe('Msg=A+B%0A&Save=');
+  sysop.value = 'unknown';
 });

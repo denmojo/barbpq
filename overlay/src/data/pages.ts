@@ -1,5 +1,6 @@
 // Parsers for the node's old HTML pages. They throw ParseError naming the page and field.
 import { getText, ParseError } from './http';
+import { getProtected } from './session';
 
 const doc = (html: string): Document => new DOMParser().parseFromString(html, 'text/html');
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/ /g, ' ').trim();
@@ -21,8 +22,10 @@ function statRow(d: Document, label: string, count: number): number[] {
   const row = Array.from(d.querySelectorAll('tr')).find((tr) =>
     clean(tr.cells[0]?.textContent).toLowerCase().startsWith(label.toLowerCase()));
   if (!row) throw new ParseError('Stats', label);
-  const nums = Array.from(row.cells).slice(1).map((c) => Number(clean(c.textContent)));
-  if (nums.length < count || nums.slice(0, count).some((n) => Number.isNaN(n))) throw new ParseError('Stats', label);
+  const texts = Array.from(row.cells).slice(1, 1 + count).map((c) => clean(c.textContent));
+  if (texts.length < count || texts.some((t) => t === '')) throw new ParseError('Stats', label);
+  const nums = texts.map(Number);
+  if (nums.some((n) => Number.isNaN(n))) throw new ParseError('Stats', label);
   return nums;
 }
 
@@ -150,15 +153,17 @@ export function parseLogList(html: string): LogFile[] {
   return files;
 }
 
-export function logUrl(file: LogFile, isoDate: string): string {
-  return `/node/ShowLog.html?date=${isoDate}&${file.param}=${encodeURIComponent(file.label).replace(/%20/g, '+')}`;
-}
-
 /** The log text sits in the page's textarea. */
 export function parseLogText(html: string): string {
   const area = doc(html).querySelector('textarea#log');
   if (!area) throw new ParseError('Log', 'log text');
   return (area as HTMLTextAreaElement).value;
+}
+
+/** Fetch one day's log (sysop only; throws NotAuthorizedError when signed out). */
+export async function fetchLog(file: LogFile, isoDate: string): Promise<string> {
+  const url = `/node/ShowLog.html?date=${isoDate}&${file.param}=${encodeURIComponent(file.label).replace(/%20/g, '+')}`;
+  return parseLogText(await getProtected(url));
 }
 
 export const fetchStats = async (): Promise<Stats> => parseStats(await getText('/Node/Stats.html'));
