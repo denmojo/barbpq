@@ -9,8 +9,9 @@ export function sortPorts(ports: StationPort[]): StationPort[] {
   return [...ports.filter((p) => p.freqHz !== null), ...ports.filter((p) => p.freqHz === null)];
 }
 
-/** An AXIP port carries AX.25 over the internet; /api/ui/station names its driver BPQAXIP. */
-export const isInternetLink = (p: StationPort): boolean => p.driver === 'BPQAXIP';
+/** An AXIP port carries AX.25 over the internet. Matched as LinBPQ picks the driver
+ *  (LinBPQ.c:2012-2021): the DLL name upper-cased, with BPQAXIP anywhere in it. */
+export const isInternetLink = (p: StationPort): boolean => p.driver.toUpperCase().includes('BPQAXIP');
 
 /** Every port but the internet links, Winlink ports first. */
 export const radioPorts = (ports: StationPort[]): StationPort[] => sortPorts(ports.filter((p) => !isInternetLink(p)));

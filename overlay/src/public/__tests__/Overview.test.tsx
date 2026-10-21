@@ -2,6 +2,7 @@ process.env.TZ = 'America/Los_Angeles';
 
 import { render, screen, within, act, waitFor } from '@testing-library/preact';
 import { Overview } from '../Overview';
+import { isInternetLink } from '../model';
 import * as ui from '../../data/uiapi';
 import * as api from '../../data/api';
 import { expectNoOldPageLinks, prime } from './prime';
@@ -83,6 +84,16 @@ test('an AXIP port sits under Internet links, not Radio ports', async () => {
   expect(within(inet).getByText('AXIP peer link', { selector: '.pname' })).toBeInTheDocument();
   const chip = await within(inet).findByText('Listening');
   expect(chip.closest('[title]')).toHaveAttribute('title', 'socket open, 1 of 1 peers heard in the last hour');
+});
+
+test('an AXIP driver is matched the way LinBPQ loads it: upper-cased, BPQAXIP anywhere in the name', () => {
+  // LinBPQ.c:2012-2021 upper-cases PORT_DLL_NAME and tests strstr(Value, "BPQAXIP")
+  for (const driver of ['BPQAXIP', 'bpqaxip', '/usr/lib/BPQAXIP', 'XBPQAXIP64']) {
+    expect(isInternetLink({ ...axip, driver })).toBe(true);
+  }
+  for (const driver of ['AXIP', 'BPQETHER', 'KISS', 'TELNET', 'BPQAX']) {
+    expect(isInternetLink({ ...axip, driver })).toBe(false);
+  }
 });
 
 test('no Internet links card when the station has no AXIP port', async () => {
