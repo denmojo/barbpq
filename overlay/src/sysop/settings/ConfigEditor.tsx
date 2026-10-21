@@ -1,11 +1,14 @@
 // The raw bpq32.cfg editor: a textarea over a highlighted copy of the same text, a gutter with
 // line numbers and check marks, the check results, and a line diff against the loaded text.
 // It shows the full file, USER lines included, as the node's own Edit Config page does.
+// PORT, TNCPORT and text blocks fold: a folded block shows as one row and the lines around it
+// are edited in pieces. Folding is view state only; the text the editor saves is never changed by it.
 import type { ComponentChildren } from 'preact';
-import { useMemo, useRef } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Card } from '../../ui/Card';
 import type { CfgLine, Issue } from './cfgcheck';
 import type { DiffRow } from './cfgdiff';
+import { foldRegions, pieces, pieceText, replacePiece, type FoldRegion } from './cfgfold';
 
 const KEY_CLASS: Partial<Record<CfgLine['kind'], string>> = {
   keyword: 'tk-key', unknown: 'tk-unk', port: 'tk-port', endport: 'tk-endport', driver: 'tk-drv',
@@ -44,19 +47,103 @@ export const LINE_PX = 20;
 
 const MAX_DIFF_ROWS = 300;
 
+type Marks = Map<number, Issue['severity']>;
+
+function GutterRows({ lines, changed, marks }: { lines: CfgLine[]; changed: Set<number>; marks: Marks }) {
+  return (
+    <>
+      {lines.map((l) => {
+        const mark = marks.get(l.n);
+        return <div key={l.n} class={['gn', changed.has(l.n) ? 'chg' : '', mark ?? ''].join(' ').trim()}>{l.n}</div>;
+      })}
+    </>
+  );
+}
+
+function HlRows({ lines, changed }: { lines: CfgLine[]; changed: Set<number> }) {
+  return (
+    <>
+      {lines.map((l) => (
+        <div key={l.n} class={['ln', changed.has(l.n) ? 'chg' : '', l.block !== null ? 'blk' : ''].join(' ').trim()}>{renderLine(l)}</div>
+      ))}
+    </>
+  );
+}
+
+/** One run of unfolded lines while some block is folded: sized to its lines, edited on its own. */
+function EditPiece({ from, to, raw, lines, changed, marks, onText }: {
+  from: number; to: number; raw: string[]; lines: CfgLine[]; changed: Set<number>; marks: Marks; onText: (text: string) => void;
+}) {
+  const hl = useRef<HTMLPreElement>(null);
+  const shown = lines.slice(from, to);
+  const sync = (e: Event): void => {
+    if (hl.current) hl.current.style.transform = `translateX(${-(e.currentTarget as HTMLTextAreaElement).scrollLeft}px)`;
+  };
+  return (
+    <div class="cfg-piece">
+      <div class="cfg-gutter" aria-hidden="true"><div><GutterRows lines={shown} changed={changed} marks={marks} /></div></div>
+      <div class="cfg-area" style={{ height: `${(to - from) * LINE_PX + PIECE_PAD}px` }}>
+        <pre class="cfg-hl" aria-hidden="true" ref={hl}><HlRows lines={shown} changed={changed} /></pre>
+        <textarea aria-label={`bpq32.cfg lines ${from + 1} to ${to}`} data-from={from} wrap="off" spellcheck={false}
+          autocapitalize="off" autocomplete="off" value={pieceText(raw, { from, to })} onScroll={sync}
+          onInput={(e) => { onText((e.currentTarget as HTMLTextAreaElement).value); }} />
+      </div>
+    </div>
+  );
+}
+
+function FoldedRow({ region, marks, onOpen }: { region: FoldRegion; marks: Marks; onOpen: () => void }) {
+  const count = region.end - region.start + 1;
+  let mark: Issue['severity'] | undefined;
+  for (let n = region.start; n <= region.end; n++) {
+    const m = marks.get(n);
+    if (m === 'error') { mark = m; break; }
+    if (m) mark = m;
+  }
+  return (
+    <div class="cfg-piece cfg-folded">
+      <div class="cfg-gutter" aria-hidden="true"><div><div class={['gn', mark ?? ''].join(' ').trim()}>{region.start}</div></div></div>
+      <button type="button" class="cfg-fold-row" aria-expanded="false" onClick={onOpen}>
+        <span class="tk-port">{region.label}</span>
+        <span class="muted">{`${count} lines folded, ${region.start} to ${region.end}`}</span>
+        {mark && <span class={`cfg-fold-mark ${mark}`}>{mark === 'error' ? 'has an error' : 'has a warning'}</span>}
+      </button>
+    </div>
+  );
+}
+
+/** Vertical room an edit piece keeps under its lines for a horizontal scrollbar. */
+const PIECE_PAD = 14;
+
 /** `lines`, `issues` and `diff` come from the screen, which computes them once per edit. */
 export function ConfigEditor({ value, lines, issues, diff, onInput }: {
   value: string; lines: CfgLine[]; issues: Issue[]; diff: DiffRow[]; onInput: (text: string) => void;
 }) {
   const changed = useMemo(() => new Set(diff.flatMap((d) => (d.kind === 'add' ? [d.b] : []))), [diff]);
   const marks = useMemo(() => {
-    const m = new Map<number, Issue['severity']>();
+    const m: Marks = new Map();
     for (const i of issues) if (m.get(i.line) !== 'error') m.set(i.line, i.severity);
     return m;
   }, [issues]);
+  const regions = useMemo(() => foldRegions(lines), [lines]);
+  // View state only, never stored: which blocks are folded, by kind and ordinal.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const open = useMemo(() => new Set(regions.filter((r) => folded.has(r.key)).map((r) => r.key)), [regions, folded]);
+  const raw = useMemo(() => value.split('\n'), [value]);
+  const parts = useMemo(() => pieces(raw.length, regions, open), [raw.length, regions, open]);
+  const folding = open.size > 0;
+
   const ta = useRef<HTMLTextAreaElement>(null);
   const hl = useRef<HTMLPreElement>(null);
   const gutter = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const pendingJump = useRef<number | null>(null);
+
+  const toggle = (key: string): void => {
+    const next = new Set(folded);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    setFolded(next);
+  };
 
   const sync = (): void => {
     const el = ta.current;
@@ -64,40 +151,84 @@ export function ConfigEditor({ value, lines, issues, diff, onInput }: {
     if (hl.current) hl.current.style.transform = `translate(${-el.scrollLeft}px, ${-el.scrollTop}px)`;
     if (gutter.current) gutter.current.style.transform = `translateY(${-el.scrollTop}px)`;
   };
-  const jump = (n: number): void => {
-    const el = ta.current;
-    if (!el) return;
-    const off = lineOffset(el.value, n);
+  const place = (n: number): void => {
+    if (!folding) {
+      const el = ta.current;
+      if (!el) return;
+      const off = lineOffset(el.value, n);
+      el.focus();
+      el.setSelectionRange(off, off);
+      el.scrollTop = Math.max(0, (n - 1) * LINE_PX - el.clientHeight / 3);
+      sync();
+      return;
+    }
+    const tas = Array.from(box.current?.querySelectorAll<HTMLTextAreaElement>('textarea[data-from]') ?? []);
+    const el = tas.filter((t) => Number(t.dataset.from) < n).pop();
+    if (!el || !box.current) return;
+    const k = n - 1 - Number(el.dataset.from);
+    const off = lineOffset(el.value, k + 1);
     el.focus();
     el.setSelectionRange(off, off);
-    el.scrollTop = Math.max(0, (n - 1) * LINE_PX - el.clientHeight / 3);
-    sync();
+    const piece = el.closest('.cfg-piece') as HTMLElement | null;
+    box.current.scrollTop = Math.max(0, (piece?.offsetTop ?? 0) + k * LINE_PX - box.current.clientHeight / 3);
   };
+  const jump = (n: number): void => {
+    // A line inside a folded block opens it first; the caret goes there once it is drawn.
+    const hidden = regions.find((r) => open.has(r.key) && n >= r.start && n <= r.end);
+    if (hidden) {
+      pendingJump.current = n;
+      toggle(hidden.key);
+      return;
+    }
+    place(n);
+  };
+  useEffect(() => {
+    if (pendingJump.current === null) return;
+    const n = pendingJump.current;
+    pendingJump.current = null;
+    place(n);
+  });
   const errors = issues.filter((i) => i.severity === 'error').length;
   const warnings = issues.length - errors;
 
   return (
     <>
       <Card title="bpq32.cfg" span={12} class="cfg-card">
-        <div class="cfged">
-          <div class="cfg-gutter" aria-hidden="true">
-            <div ref={gutter}>
-              {lines.map((l) => {
-                const mark = marks.get(l.n);
-                return <div key={l.n} class={['gn', changed.has(l.n) ? 'chg' : '', mark ?? ''].join(' ').trim()}>{l.n}</div>;
-              })}
+        {regions.length > 0 && (
+          <div class="cfg-folds" role="group" aria-label="Fold sections">
+            <span class="cfg-folds-h">Sections</span>
+            {regions.map((r) => (
+              <button key={r.key} type="button" class="cfg-fold" aria-pressed={open.has(r.key) ? 'true' : 'false'}
+                title={open.has(r.key) ? `Unfold lines ${r.start} to ${r.end}` : `Fold lines ${r.start} to ${r.end}`}
+                onClick={() => toggle(r.key)}>
+                {r.label}
+              </button>
+            ))}
+            <button type="button" class="linkbtn" onClick={() => setFolded(new Set(regions.filter((r) => r.kind !== 'text').map((r) => r.key)))}>Fold all ports</button>
+            {folding && <button type="button" class="linkbtn" onClick={() => setFolded(new Set())}>Unfold all</button>}
+          </div>
+        )}
+        {folding ? (
+          <div class="cfged cfged-folding" ref={box}>
+            {parts.map((p) => (p.type === 'fold' ? (
+              <FoldedRow key={p.region.key} region={p.region} marks={marks} onOpen={() => toggle(p.region.key)} />
+            ) : (
+              <EditPiece key={`e${p.from}`} from={p.from} to={p.to} raw={raw} lines={lines} changed={changed} marks={marks}
+                onText={(text) => onInput(replacePiece(raw, p, text))} />
+            )))}
+          </div>
+        ) : (
+          <div class="cfged">
+            <div class="cfg-gutter" aria-hidden="true">
+              <div ref={gutter}><GutterRows lines={lines} changed={changed} marks={marks} /></div>
+            </div>
+            <div class="cfg-area">
+              <pre class="cfg-hl" aria-hidden="true" ref={hl}><HlRows lines={lines} changed={changed} /></pre>
+              <textarea ref={ta} aria-label="bpq32.cfg" wrap="off" spellcheck={false} autocapitalize="off" autocomplete="off"
+                value={value} onInput={(e) => { onInput((e.currentTarget as HTMLTextAreaElement).value); }} onScroll={sync} />
             </div>
           </div>
-          <div class="cfg-area">
-            <pre class="cfg-hl" aria-hidden="true" ref={hl}>
-              {lines.map((l) => (
-                <div key={l.n} class={['ln', changed.has(l.n) ? 'chg' : '', l.block !== null ? 'blk' : ''].join(' ').trim()}>{renderLine(l)}</div>
-              ))}
-            </pre>
-            <textarea ref={ta} aria-label="bpq32.cfg" wrap="off" spellcheck={false} autocapitalize="off" autocomplete="off"
-              value={value} onInput={(e) => { onInput((e.currentTarget as HTMLTextAreaElement).value); }} onScroll={sync} />
-          </div>
-        </div>
+        )}
         <div class="cfg-check">
           <div class="cfg-check-h">
             Check: {errors === 0 && warnings === 0 ? 'no problems found'

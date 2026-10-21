@@ -25,6 +25,24 @@
 .cfg-area textarea { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: transparent; color: transparent; caret-color: var(--text); overflow: auto; }
 .cfg-area textarea::selection { background: color-mix(in oklab, var(--accent) 35%, transparent); color: transparent; }
 .cfg-area:focus-within { box-shadow: inset 0 0 0 2px var(--accent); }
+.cfg-folds { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 10px; font-size: 12.5px; }
+.cfg-folds-h { font-weight: 600; color: var(--text-muted); margin-right: 2px; }
+.cfg-fold { font: 600 12px var(--font-mono); color: var(--text); background: var(--surface-2); border: 1px solid var(--border); padding: 4px 10px; border-radius: var(--radius-pill); cursor: pointer; }
+.cfg-fold:hover { border-color: var(--accent); }
+.cfg-fold[aria-pressed="true"] { background: var(--accent-weak); color: var(--accent); border-color: transparent; }
+/* While a block is folded the editor is a column of pieces: edit runs sized to their lines, and one row per folded block. */
+.cfged.cfged-folding { display: block; overflow: auto; padding: 10px 0; }
+.cfg-piece { display: grid; grid-template-columns: 48px minmax(0, 1fr); }
+.cfg-piece .cfg-gutter > div { padding: 0 8px 0 0; }
+.cfg-piece .cfg-hl, .cfg-piece .cfg-area textarea { padding-top: 0; padding-bottom: 0; }
+.cfg-piece .cfg-area textarea { overflow-x: auto; overflow-y: hidden; }
+.cfg-folded { min-height: 28px; }
+.cfg-fold-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 2px 8px; padding: 3px 10px; text-align: left; font: 13px/20px var(--font-mono); color: var(--text); background: color-mix(in oklab, var(--accent) 7%, var(--surface)); border: 1px dashed var(--border); border-radius: var(--radius); cursor: pointer; }
+.cfg-fold-row:hover { border-color: var(--accent); }
+.cfg-fold-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.cfg-fold-mark { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.cfg-fold-mark.error { color: var(--danger); }
+.cfg-fold-mark.warning { color: var(--warn); }
 .tk-comment { color: var(--text-faint); font-style: italic; }
 .tk-key { color: var(--accent); font-weight: 600; }
 .tk-drv { color: var(--text-muted); font-weight: 600; }
@@ -75,4 +93,5 @@
 @media (max-width: 700px) {
   .title-actions { margin-left: 0; width: 100%; }
   .cfged { grid-template-columns: 40px minmax(0, 1fr); height: 60vh; }
+  .cfg-piece { grid-template-columns: 40px minmax(0, 1fr); }
 }

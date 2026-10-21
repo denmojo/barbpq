@@ -176,6 +176,68 @@ test('Save posts the draft, the banner reads "Saved. Restart linbpq to apply." a
   expect(within(banner).queryByRole('button')).toBeNull();
 });
 
+const folds = () => screen.getByRole('group', { name: 'Fold sections' });
+
+test('folding a PORT block, editing elsewhere and saving posts the same bytes as editing the unfolded file', async () => {
+  let posted: Uint8Array | undefined;
+  nodePages({ '/Node/CFGSave?N1': (init) => { posted = init?.body as Uint8Array; return SAVED_REPLY; } });
+  render(<App />);
+  await editor();
+  expect(within(folds()).getAllByRole('button', { pressed: false }).map((b) => b.textContent))
+    .toEqual(['IDMSG:', 'PORT 1 · Telnet Server', 'PORT 3 · VARA FM', 'PORT 2 · Direwolf']);
+  fireEvent.click(within(folds()).getByRole('button', { name: 'PORT 1 · Telnet Server' }));
+  // The block is one row; its lines, USER passwords included, are in no text box.
+  expect(screen.getByRole('button', { name: /PORT 1 · Telnet Server.*12 lines folded, 18 to 29/ })).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('textbox', { name: 'bpq32.cfg' })).toBeNull();
+  const boxes = screen.getAllByRole('textbox', { name: /^bpq32\.cfg lines/ }) as HTMLTextAreaElement[];
+  expect(boxes.map((b) => b.getAttribute('aria-label'))).toEqual(['bpq32.cfg lines 1 to 17', 'bpq32.cfg lines 30 to 52']);
+  expect(boxes.some((b) => b.value.includes('CMSPASS'))).toBe(false);
+  type(boxes[0]!, boxes[0]!.value.replace('IDINTERVAL=15', 'IDINTERVAL=20'));
+  await screen.findByText('1 line changed');
+  // Still folded after the edit; the second piece picks up its own edit too.
+  const after = screen.getAllByRole('textbox', { name: /^bpq32\.cfg lines/ }) as HTMLTextAreaElement[];
+  type(after[1]!, after[1]!.value.replace('TXTAIL=50', 'TXTAIL=110'));
+  await screen.findByText('2 lines changed');
+  fireEvent.click(saveButton());
+  await screen.findByRole('status', { name: 'Restart needed' });
+  const expected = SAMPLE_CFG.replace('IDINTERVAL=15', 'IDINTERVAL=20').replace('TXTAIL=50', 'TXTAIL=110');
+  expect(nodeSaveDecode(posted!)).toBe(expected);
+  expect(Array.from(posted!)).toEqual(Array.from(encodeCfgSave(expected)));
+  expect(setItem.mock.calls.filter((c: unknown[]) => /port:|fold/i.test(String(c)))).toEqual([]);
+});
+
+test('a folded file that is saved untouched round-trips byte for byte; Unfold all brings the single editor back', async () => {
+  // The textarea the node serves holds LF line ends (the node drops CR on save anyway).
+  const cfg = SAMPLE_CFG.replace('IDINTERVAL=15', 'IDINTERVAL=15\t; 20° east +a%b&c=d');
+  nodePages({ '/Node/EditCfg.html': editPage(cfg) });
+  render(<App />);
+  const ta = await editor();
+  expect(ta.value).toBe(cfg);
+  fireEvent.click(screen.getByRole('button', { name: 'Fold all ports' }));
+  const boxes = screen.getAllByRole('textbox', { name: /^bpq32\.cfg lines/ }) as HTMLTextAreaElement[];
+  expect(boxes.map((b) => b.getAttribute('aria-label')))
+    .toEqual(['bpq32.cfg lines 1 to 17', 'bpq32.cfg lines 30 to 30', 'bpq32.cfg lines 38 to 38', 'bpq32.cfg lines 49 to 52']);
+  // Re-typing each piece as it is changes nothing.
+  for (const b of boxes) type(b, b.value);
+  expect(cfgDraft.value).toBe(cfg);
+  expect(screen.getByText('No changes')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Unfold all' }));
+  expect((await editor()).value).toBe(cfg);
+});
+
+test('jumping to a check result inside a folded block unfolds it', async () => {
+  nodePages();
+  render(<App />);
+  const ta = await editor();
+  type(ta, SAMPLE_CFG.replace(' DRIVER=VARA', ' DRIVER=VARA\n FROBNICATE=1'));
+  const list = await screen.findByRole('list', { name: 'Config check' });
+  fireEvent.click(within(folds()).getByRole('button', { name: 'PORT 3 · VARA FM' }));
+  expect(screen.getByRole('button', { name: /PORT 3 · VARA FM.*has a warning/ })).toBeInTheDocument();
+  fireEvent.click(within(list).getByRole('button', { name: 'Line 35' }));
+  await waitFor(() => expect(within(folds()).getByRole('button', { name: 'PORT 3 · VARA FM' })).toHaveAttribute('aria-pressed', 'false'));
+  expect(screen.getByRole('textbox', { name: 'bpq32.cfg' })).toHaveFocus();
+});
+
 test('a session that expires during the save keeps the draft, asks for sign-in, then saves it', async () => {
   let expired = false;
   let posted: Uint8Array | undefined;
