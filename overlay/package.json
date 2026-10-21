@@ -8,7 +8,7 @@
     "build": "vite build && node scripts/finish-dist.mjs",
     "typecheck": "tsc --noEmit"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "private": true,
   "dependencies": {
