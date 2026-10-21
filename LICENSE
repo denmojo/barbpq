@@ -63,9 +63,9 @@ getopt.c/getopt.h.
 
 3. The BarBPQ web UI overlay and UI API
 
-The following are Copyright (C) 2026 Dennis M and are licensed under the
-GNU General Public License, version 3 or (at your option) any later
-version:
+The following are Copyright (C) 2026 Dennis Mojado and are licensed
+under the GNU General Public License, version 3 or (at your option) any
+later version:
 
   overlay/          (the web UI source, tests and build scripts;
                      overlay/node_modules/ is not part of it)
@@ -85,8 +85,9 @@ The built overlay (overlay/dist/, installed as HTML/) also contains
 compiled copies of Preact, @preact/signals and @preact/signals-core
 (MIT License) and lucide-preact (ISC License, with icons derived from
 Feather under the MIT License), which remain under their own notices.
-Their full license texts are in section 5, and the same texts open
-every built ui/*.js file.
+Their full license texts are in section 5. Every built ui/*.js file
+opens with the same texts, after a line naming the overlay's own
+copyright holder (Dennis Mojado) and its license.
 
 
 4. GNU General Public License, version 3

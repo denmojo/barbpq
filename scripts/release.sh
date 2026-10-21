@@ -48,7 +48,7 @@ for js in overlay/dist/ui/*.js; do
   # The banner is the leading /*! ... */ comment, however long it is.
   top="$(perl -0777 -ne 'print $1 if m{\A(/\*!.*?\*/)}s' "$js")"
   [ -n "$top" ] || die "$js does not open with the license banner"
-  for holder in 'Jason Miller' 'Preact Team' 'Lucide Icons and Contributors' 'Cole Bemis'; do
+  for holder in 'Dennis Mojado' 'Jason Miller' 'Preact Team' 'Lucide Icons and Contributors' 'Cole Bemis'; do
     [[ "$top" == *"$holder"* ]] || die "$js banner lacks the notice for $holder"
   done
 done

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
-   Copyright (C) 2026 Dennis M */
+   Copyright (C) 2026 Dennis Mojado */
 
 /* uiapi: read-only data for the web UI: counter ring, event log, CMS state
    and the /api/ui JSON handlers. */

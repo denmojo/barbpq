@@ -23,6 +23,13 @@ test('the banner is one preserved comment that cannot end early', () => {
   expect(b).not.toContain('##');
 });
 
+test('the banner opens with the overlay copyright holder, Dennis Mojado, then the third-party texts', () => {
+  const b = noticeBanner();
+  expect(b.startsWith('/*! BarBPQ - LinBPQ Web UI. Copyright (C) 2026 Dennis Mojado.')).toBe(true);
+  expect(b).not.toMatch(/Dennis M(?!ojado)/);
+  expect(b.indexOf('Dennis Mojado')).toBeLessThan(b.indexOf('Jason Miller'));
+});
+
 function makeDist() {
   const d = mkdtempSync(join(tmpdir(), 'dist-'));
   mkdirSync(join(d, 'ui'));

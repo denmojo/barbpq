@@ -1,4 +1,4 @@
-// Third-party license notices for the code bundled into dist/ui/*.js.
+// License notices for dist/ui/*.js: the overlay's own copyright line, then the bundled code's.
 // The texts are read from each package's own LICENSE file in node_modules.
 // lucide-preact's LICENSE also carries the Feather MIT notice.
 import { readFileSync } from 'node:fs';
@@ -17,8 +17,12 @@ export function thirdPartyNotices(nodeModules = NODE_MODULES) {
   }).join('\n\n----------------------------------------------------------------------\n\n');
 }
 
+/** The overlay's own copyright line, ahead of the third-party texts. */
+export const OWN_NOTICE = 'BarBPQ - LinBPQ Web UI. Copyright (C) 2026 Dennis Mojado. '
+  + 'GNU General Public License, version 3 or (at your option) any later version; see LICENSE in the source.';
+
 /** One preserved block comment; "*" + "/" inside a notice is broken up so it cannot close it early. */
 export function noticeBanner(nodeModules = NODE_MODULES) {
   const body = thirdPartyNotices(nodeModules).replace(/\*\//g, '* /').replace(/##/g, '# #');
-  return `/*! Third-party code bundled in this file, under its own license:\n\n${body}\n*/\n`;
+  return `/*! ${OWN_NOTICE}\n\nThird-party code bundled in this file, under its own license:\n\n${body}\n*/\n`;
 }
