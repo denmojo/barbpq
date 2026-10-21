@@ -9,7 +9,7 @@ test('frequency in MHz to three places', () => {
 
 test('uptime as days and hh:mm', () => {
   expect(formatUptime(2 * 86400 + 4 * 3600 + 17 * 60 + 59)).toBe('2d 04:17');
-  expect(formatUptime(529)).toBe('00:08');
+  expect(formatUptime(529)).toBe('0d 00:08');
 });
 
 test('local clock time from an ISO stamp', () => {

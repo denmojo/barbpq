@@ -37,11 +37,18 @@ export function linkPill(state: LinkState | undefined): Pill {
   return { tone: 'idle', label: 'Unknown', title: state.detail };
 }
 
-export interface Hero { tone: Tone; title: string; sub: string | null }
+export interface Hero { tone: Tone; title: string; sub: string | null; reason?: string }
 
 /** The status line at the top of Overview. It says "on the air" only when a radio port is linked. */
-export function heroStatus(station: Station | undefined, links: LinkState[] | undefined): Hero {
-  if (!station) return { tone: 'idle', title: 'Checking the node', sub: null };
+export function heroStatus(
+  station: Station | undefined, links: LinkState[] | undefined,
+  errors: { station?: Error; links?: Error } = {},
+): Hero {
+  if (!station) {
+    return errors.station
+      ? { tone: 'idle', title: 'Status unknown', sub: null, reason: errors.station.message }
+      : { tone: 'idle', title: 'Checking the node', sub: null };
+  }
   const rf = station.ports.filter((p) => p.freqHz !== null);
   const what = rf.length ? 'Gateway' : 'Node';
   let sub: string | null = null;
@@ -50,7 +57,11 @@ export function heroStatus(station: Station | undefined, links: LinkState[] | un
     const modes = [...new Set(rf.flatMap((p) => p.modes.map(modeName)))];
     sub = `Winlink RMS on ${joinAnd(freqs)}${modes.length ? ` · ${joinAnd(modes)}` : ''}`;
   }
-  if (!links) return { tone: 'idle', title: `${what} status loading`, sub };
+  if (!links) {
+    return errors.links
+      ? { tone: 'idle', title: `${what} status unknown`, sub, reason: errors.links.message }
+      : { tone: 'idle', title: `Checking the ${what.toLowerCase()}`, sub };
+  }
   const states = (rf.length ? rf : station.ports).map((p) => links.find((l) => l.number === p.number)?.state ?? 'unknown');
   if (states.includes('linked')) return { tone: 'ok', title: `${what} on the air`, sub };
   if (states.length && states.every((s) => s === 'down')) return { tone: 'down', title: `${what} off the air`, sub };
@@ -65,12 +76,24 @@ export function sortHeard(rows: HeardRow[]): HeardRow[] {
   return [...rows].sort((a, b) => t(b) - t(a));
 }
 
-/** Heard lists of every port, merged. */
+/** Heard lists of the given ports, merged newest first. */
+export async function loadHeardFor(ports: StationPort[]): Promise<HeardRow[]> {
+  const lists = await Promise.all(ports.map(async (port) =>
+    (await getHeard(port.number)).map((h) => ({ ...h, port }))));
+  return sortHeard(lists.flat());
+}
+
+/** The station's ports and their heard lists, for a screen that has no station poll of its own. */
 export async function loadHeard(): Promise<{ ports: StationPort[]; rows: HeardRow[] }> {
   const station = await getStation();
-  const lists = await Promise.all(station.ports.map(async (port) =>
-    (await getHeard(port.number)).map((h) => ({ ...h, port }))));
-  return { ports: station.ports, rows: sortHeard(lists.flat()) };
+  return { ports: station.ports, rows: await loadHeardFor(station.ports) };
+}
+
+/** A port's link chip from the link-state poll; null while it is still loading. */
+export function linkPillFrom(links: { data?: LinkState[]; error?: Error }, port: number): Pill | null {
+  if (links.data) return linkPill(links.data.find((l) => l.number === port));
+  if (links.error) return { tone: 'idle', label: 'Unknown', title: links.error.message };
+  return null;
 }
 
 export const viaText = (via: string[]): string => (via.length ? `via ${via.join(', ')}` : '');

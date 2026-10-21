@@ -2,88 +2,93 @@ import { Lock, Mail, MessageSquare } from 'lucide-preact';
 import { getUsers } from '../data/api';
 import { usePoll } from '../data/poll';
 import { getCms, getCounts, getLinkStates, getStation } from '../data/uiapi';
-import type { CmsState, Counts, Station } from '../data/uiapi';
+import type { CmsState, Counts, LinkState, Station } from '../data/uiapi';
+import type { Poll } from '../data/poll';
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
 import { ErrorNote } from '../ui/ErrorNote';
 import { OfflineBanner } from '../ui/OfflineBanner';
 import { StatusPill } from '../ui/StatusPill';
 import { Unknown } from '../ui/Unknown';
+import { Pending, Skel } from '../ui/Skel';
 import { formatAgo, formatClock, formatFreq, formatUptime } from '../ui/format';
 import { Footer } from './Footer';
-import { heroStatus, linkPill, loadHeard, portMeta, sortPorts, viaText } from './model';
+import { heroStatus, linkPillFrom, loadHeardFor, portMeta, sortPorts, viaText } from './model';
 import { useUpdated } from './useUpdated';
 
-const Skel = () => <span class="skel" aria-hidden="true" />;
-
-function CmsFact({ cms }: { cms: CmsState | undefined }) {
-  if (!cms) return <Skel />;
+function CmsFact({ poll }: { poll: Poll<CmsState> }) {
+  const cms = poll.data;
+  if (!cms) return <Pending poll={poll} />;
   if (cms.ok === true) return <span class="ok-text">reachable</span>;
   if (cms.ok === false) return <span class="down-text" title={cms.lastSuccess ? `Last reached ${cms.lastSuccess}` : undefined}>unreachable</span>;
   return <Unknown reason="No CMS connect attempt since the node started" />;
 }
 
-function HeroCard({ station, links, cms }: {
-  station: Station | undefined; links: Parameters<typeof heroStatus>[1]; cms: CmsState | undefined;
-}) {
-  const hero = heroStatus(station, links);
+function HeroCard({ station, links, cms }: { station: Poll<Station>; links: Poll<LinkState[]>; cms: Poll<CmsState> }) {
+  const st = station.data;
+  const hero = heroStatus(st, links.data, { station: station.error, links: links.error });
   return (
     <section class="hero" aria-label="Node status">
       <span class={`pulse ${hero.tone}`} aria-hidden="true" />
       <div class="hero-text">
-        <h1>{hero.title}</h1>
+        <h1 title={hero.reason}>{hero.title}</h1>
         {hero.sub && <p>{hero.sub}</p>}
       </div>
       <div class="facts">
         <div class="fact">
           <div class="k">Uptime</div>
           <div class="v">
-            {!station ? <Skel /> : station.uptimeSec === null
+            {!st ? <Pending poll={station} /> : st.uptimeSec === null
               ? <Unknown reason="The node did not report when it started" />
-              : formatUptime(station.uptimeSec)}
+              : formatUptime(st.uptimeSec)}
           </div>
         </div>
-        <div class="fact"><div class="k">CMS</div><div class="v"><CmsFact cms={cms} /></div></div>
-        <div class="fact"><div class="k">Version</div><div class="v">{station ? station.version : <Skel />}</div></div>
+        <div class="fact"><div class="k">CMS</div><div class="v"><CmsFact poll={cms} /></div></div>
+        <div class="fact"><div class="k">Version</div><div class="v">{st ? st.version : <Pending poll={station} />}</div></div>
       </div>
     </section>
   );
 }
 
-function countsTitle(c: Counts | undefined): string {
-  if (!c || c.full) return 'Last 24 hours';
+/** "Last 24 hours" only when the node says the window is full; "Counts" until it has answered. */
+export function countsTitle(c: Counts | undefined): string {
+  if (!c) return 'Counts';
+  if (c.full) return 'Last 24 hours';
   return c.windowStart ? `Since ${formatClock(c.windowStart)}` : 'Since the counters started';
 }
 
 export function Overview() {
   const station = usePoll(getStation, 15_000);
-  const links = usePoll(getLinkStates, 10_000);
+  const links = usePoll(getLinkStates, 20_000);
   const cms = usePoll(getCms, 30_000);
   const counts = usePoll(getCounts, 60_000);
-  const users = usePoll(getUsers, 10_000);
-  const heard = usePoll(loadHeard, 20_000);
+  const users = usePoll(getUsers, 20_000);
+  // Heard reads the port list from the station poll above rather than fetching the station again.
+  const ports = station.data?.ports;
+  const portsKey = ports?.map((p) => p.number).join(',');
+  const heard = usePoll(() => loadHeardFor(ports ?? []), 20_000, { enabled: ports !== undefined, key: portsKey });
   const updated = useUpdated(station.data);
   const stale = [station, links, cms, counts, users, heard].some((p) => p.stale);
 
   const st = station.data;
   const rf = st ? st.ports.filter((p) => p.freqHz !== null) : [];
   const freqs = [...new Set(rf.map((p) => formatFreq(p.freqHz as number)))];
-  const recent = (heard.data?.rows ?? []).slice(0, 5);
+  const recent = (heard.data ?? []).slice(0, 5);
   const c = counts.data;
   const stat = (k: string, v: number | undefined) => (
-    <div class="stat"><div class="k">{k}</div><div class="v">{v === undefined ? <Skel /> : v}</div></div>
+    <div class="stat"><div class="k">{k}</div><div class="v">{v === undefined ? <Pending poll={counts} /> : v}</div></div>
   );
 
   return (
     <>
       <OfflineBanner show={stale} since={updated} />
-      <HeroCard station={st} links={links.data} cms={cms.data} />
+      <HeroCard station={station} links={links} cms={cms} />
 
       <div class="grid">
         <Card title="Radio ports" span={8} more={{ href: '#/ports', label: 'All ports →' }}>
           {station.error && !st && <ErrorNote error={station.error} />}
           {st && sortPorts(st.ports).map((p) => {
-            const pill = linkPill(links.data?.find((l) => l.number === p.number));
+            const pill = linkPillFrom(links, p.number);
             return (
               <div class="port">
                 <div class="ptag">{p.number}</div>
@@ -92,13 +97,14 @@ export function Overview() {
                   <div class="pmeta">{portMeta(p, st.telnetPort)}</div>
                 </div>
                 <span />
-                {links.data ? <StatusPill {...pill} /> : <Skel />}
+                {pill ? <StatusPill {...pill} /> : <Skel />}
               </div>
             );
           })}
         </Card>
 
         <Card title="Recently heard" span={4} more={{ href: '#/heard', label: 'All →' }}>
+          {station.error && !st && <ErrorNote error={station.error} />}
           {heard.error && !heard.data && <ErrorNote error={heard.error} />}
           {heard.data && (recent.length ? (
             <ul class="heard">

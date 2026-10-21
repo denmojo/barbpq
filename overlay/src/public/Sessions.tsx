@@ -8,7 +8,7 @@ import { Footer } from './Footer';
 import { useUpdated } from './useUpdated';
 
 export function Sessions() {
-  const users = usePoll(getUsers, 10_000);
+  const users = usePoll(getUsers, 20_000);
   const updated = useUpdated(users.data);
   return (
     <>

@@ -25,7 +25,7 @@ test('header shows the node call, alias and locator, five tabs and the three con
     ['Links & routes', '#/links'], ['Sessions', '#/sessions'],
   ]);
   expect(header.querySelector('nav a[aria-current="page"]')?.textContent).toBe('Overview');
-  expect(screen.getByRole('button', { name: 'Switch theme' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Switch theme/ })).toBeInTheDocument();
   const webmail = screen.getByRole('button', { name: /Webmail/ });
   const signin = screen.getByRole('button', { name: /SysOp sign in/ });
   expect(webmail).toHaveClass('btn');
@@ -53,10 +53,22 @@ test('SysOp sign in goes to the sign-in route of the new UI', async () => {
 test('the theme toggle switches to the opposite of the system theme and back', () => {
   themeMode.value = 'system';
   render(<PublicLayout />);
-  fireEvent.click(screen.getByRole('button', { name: 'Switch theme' }));
+  fireEvent.click(screen.getByRole('button', { name: /Switch theme/ }));
   expect(themeMode.value).toBe('opposite');
-  fireEvent.click(screen.getByRole('button', { name: 'Switch theme' }));
+  fireEvent.click(screen.getByRole('button', { name: /Switch theme/ }));
   expect(themeMode.value).toBe('system');
+});
+
+test('the theme toggle reports its state: aria-pressed in opposite mode, the current theme in its name', () => {
+  themeMode.value = 'system';
+  render(<PublicLayout />);
+  const btn = screen.getByRole('button', { name: /Switch theme/ });
+  expect(btn).toHaveAttribute('aria-pressed', 'false');
+  expect(btn).toHaveAccessibleName('Switch theme (now light)');
+  fireEvent.click(btn);
+  expect(btn).toHaveAttribute('aria-pressed', 'true');
+  expect(btn).toHaveAccessibleName('Switch theme (now dark)');
+  themeMode.value = 'system';
 });
 
 test('document title is the node call and the public name', async () => {

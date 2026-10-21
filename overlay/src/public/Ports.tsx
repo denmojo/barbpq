@@ -7,9 +7,10 @@ import { OfflineBanner } from '../ui/OfflineBanner';
 import { StatusPill } from '../ui/StatusPill';
 import { Table } from '../ui/Table';
 import { Unknown } from '../ui/Unknown';
+import { Skel } from '../ui/Skel';
 import { formatFreq } from '../ui/format';
 import { Footer } from './Footer';
-import { linkPill, sortPorts } from './model';
+import { linkPillFrom, sortPorts } from './model';
 import { useUpdated } from './useUpdated';
 
 function address(p: StationPort, telnetPort: number | null) {
@@ -21,7 +22,7 @@ function address(p: StationPort, telnetPort: number | null) {
 
 export function Ports() {
   const station = usePoll(getStation, 15_000);
-  const links = usePoll(getLinkStates, 10_000);
+  const links = usePoll(getLinkStates, 20_000);
   const updated = useUpdated(station.data);
   const st = station.data;
   return (
@@ -40,7 +41,7 @@ export function Ports() {
               ]}
             >
               {sortPorts(st.ports).map((p) => {
-                const pill = linkPill(links.data?.find((l) => l.number === p.number));
+                const pill = linkPillFrom(links, p.number);
                 return (
                   <tr>
                     <td><span class="cell-port"><span class="ptag sm">{p.number}</span><span class="pname">{p.id || p.driver}</span></span></td>
@@ -49,7 +50,7 @@ export function Ports() {
                     <td class="mono">{p.modes.length ? p.modes.join(', ') : <Unknown reason="No WL2KREPORT mode is set for this port" />}</td>
                     <td class="mono">{address(p, st.telnetPort)}</td>
                     <td class="mono r">{p.txtailMs !== null ? `${p.txtailMs} ms` : <Unknown reason="Only KISS ports report TXTAIL" />}</td>
-                    <td>{links.data ? <StatusPill {...pill} /> : null}</td>
+                    <td>{pill ? <StatusPill {...pill} /> : <Skel />}</td>
                   </tr>
                 );
               })}

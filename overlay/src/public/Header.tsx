@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import type { Info } from '../data/api';
 import type { Poll } from '../data/poll';
 import { navigate, type Route } from '../app/router';
-import { toggleTheme } from '../ui/theme';
+import { effectiveTheme, systemDark, themeMode, toggleTheme } from '../ui/theme';
 import { Unknown } from '../ui/Unknown';
 
 export const PUBLIC_TABS: { route: Route; label: string }[] = [
@@ -18,6 +18,9 @@ const WEBMAIL_TIP = 'Coming in the next release';
 
 export function Header({ info, current }: { info: Poll<Info>; current: Route }) {
   const d = info.data;
+  void systemDark.value; // re-render when the OS theme changes
+  const opposite = themeMode.value === 'opposite';
+  const theme = effectiveTheme();
   const nav = useRef<HTMLElement>(null);
   // On a phone the tab row scrolls; keep the current tab in view.
   useEffect(() => {
@@ -40,7 +43,8 @@ export function Header({ info, current }: { info: Poll<Info>; current: Route }) 
         ))}
       </nav>
       <div class="util">
-        <button type="button" class="iconbtn" title="Switch to the other theme" aria-label="Switch theme" onClick={toggleTheme}>
+        <button type="button" class="iconbtn" title="Switch to the other theme"
+          aria-label={`Switch theme (now ${theme})`} aria-pressed={opposite ? 'true' : 'false'} onClick={toggleTheme}>
           <Moon aria-hidden="true" />
         </button>
         <span class="tip" title={WEBMAIL_TIP}>

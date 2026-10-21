@@ -1,6 +1,6 @@
 process.env.TZ = 'America/Los_Angeles';
 
-import { render, screen, within, act } from '@testing-library/preact';
+import { render, screen, within, act, waitFor } from '@testing-library/preact';
 import { Overview } from '../Overview';
 import * as ui from '../../data/uiapi';
 import * as api from '../../data/api';
@@ -125,7 +125,7 @@ test('footer shows the version, public name and update time', async () => {
   const footer = await screen.findByRole('contentinfo');
   expect(await within(footer).findByText('LinBPQ 6.0.26.1')).toBeInTheDocument();
   expect(footer).toHaveTextContent('BarBPQ - LinBPQ Web UI');
-  expect(footer).toHaveTextContent('Updated 10:00');
+  await waitFor(() => expect(footer).toHaveTextContent('Updated 10:00'));
 });
 
 test('nothing on the overview links to an old page', async () => {
@@ -145,4 +145,60 @@ test('an offline banner appears after the polls go stale', async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
   expect(screen.getByRole('alert')).toHaveTextContent(/can.t reach the node/i);
   expect(screen.getByText('VARA FM', { selector: '.pname' })).toBeInTheDocument();
+});
+
+const never = <T,>(): Promise<T> => new Promise<T>(() => {});
+
+test('counts card is titled Counts while loading, with loading placeholders that say so', async () => {
+  vi.mocked(ui.getCounts).mockImplementation(never);
+  render(<Overview />);
+  const tile = await screen.findByRole('region', { name: 'Counts' });
+  expect(within(tile).getAllByRole('img', { name: 'Loading' })).toHaveLength(3);
+  expect(screen.queryByRole('region', { name: 'Last 24 hours' })).toBeNull();
+});
+
+test('counts card stays Counts on error, values Unknown with the error as reason', async () => {
+  vi.mocked(ui.getCounts).mockRejectedValue(new Error('/api/ui/counts answered 500'));
+  render(<Overview />);
+  const tile = await screen.findByRole('region', { name: 'Counts' });
+  await waitFor(() => expect(within(tile).getAllByText('Unknown')).toHaveLength(4));
+  const sessions = within(tile).getByText('Sessions').closest('.stat') as HTMLElement;
+  expect(within(sessions).getByText('Unknown')).toHaveAttribute('title', '/api/ui/counts answered 500');
+  expect(within(tile).queryAllByRole('img', { name: 'Loading' })).toHaveLength(0);
+});
+
+test('a failed station poll shows Status unknown and Unknown facts with the reason, not skeletons', async () => {
+  vi.mocked(ui.getStation).mockRejectedValue(new Error('/api/ui/station answered 404'));
+  render(<Overview />);
+  const hero = await screen.findByRole('region', { name: 'Node status' });
+  expect(await within(hero).findByText('Status unknown')).toBeInTheDocument();
+  const unknowns = within(hero).getAllByText('Unknown').filter((u) => u.getAttribute('title') === '/api/ui/station answered 404');
+  expect(unknowns).toHaveLength(2);
+  expect(within(hero).queryAllByRole('img', { name: 'Loading' })).toHaveLength(0);
+});
+
+test('a failed link-state poll gives Unknown chips with the reason and no on-the-air claim', async () => {
+  vi.mocked(ui.getLinkStates).mockRejectedValue(new Error('/api/ui/links answered 500'));
+  vi.mocked(ui.getCms).mockRejectedValue(new Error('/api/ui/cms answered 500'));
+  render(<Overview />);
+  await screen.findByText('VARA FM', { selector: '.pname' });
+  const chip = await within(portRow('VARA FM')).findByText('Unknown');
+  expect(chip.closest('[title]')).toHaveAttribute('title', '/api/ui/links answered 500');
+  const hero = screen.getByRole('region', { name: 'Node status' });
+  expect(within(hero).getByText('Gateway status unknown')).toBeInTheDocument();
+  await waitFor(() => expect(within(hero).getByText('Unknown')).toHaveAttribute('title', '/api/ui/cms answered 500'));
+});
+
+test('loading link states show a labelled placeholder, not a chip', async () => {
+  vi.mocked(ui.getLinkStates).mockImplementation(never);
+  render(<Overview />);
+  await screen.findByText('VARA FM', { selector: '.pname' });
+  expect(within(portRow('VARA FM')).getByRole('img', { name: 'Loading' })).toBeInTheDocument();
+});
+
+test('the heard list reuses the station poll: one station request', async () => {
+  render(<Overview />);
+  await screen.findByText('N6UG');
+  expect(ui.getStation).toHaveBeenCalledTimes(1);
+  expect(ui.getHeard).toHaveBeenCalledTimes(3);
 });

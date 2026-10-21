@@ -6,12 +6,12 @@ export function formatFreq(hz: number): string {
   return `${(hz / 1e6).toFixed(3)} MHz`;
 }
 
-/** "2d 04:17", or "00:08" under a day. */
+/** "2d 04:17"; under a day "0d 00:08". */
 export function formatUptime(sec: number): string {
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
   const m = Math.floor((sec % 3600) / 60);
-  return d > 0 ? `${d}d ${pad(h)}:${pad(m)}` : `${pad(h)}:${pad(m)}`;
+  return `${d}d ${pad(h)}:${pad(m)}`;
 }
 
 /** Local 24-hour clock, "09:12". */
