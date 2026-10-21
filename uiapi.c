@@ -869,6 +869,62 @@ int uiapi_events_reply(char *response, size_t cap, const char *param, int sysop)
 	return n + 2;
 }
 
+/* ---- link state from plain fields (tested on its own) ---- */
+
+const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t cap)
+{
+	if (!k->have)
+	{
+		snprintf(detail, cap, "driver reports no link state");
+		return "unknown";
+	}
+	if (k->stopped)
+	{
+		snprintf(detail, cap, "port stopped");
+		return "down";
+	}
+	if (k->ip && k->tcp && k->slave)
+	{
+		snprintf(detail, cap, k->connected ? "KISS TCP client connected" : "KISS TCP listening, no client");
+		return k->connected ? "linked" : "down";
+	}
+	if (k->ip && k->tcp)
+	{
+		snprintf(detail, cap, k->connected ? "KISS TCP connected" : "KISS TCP not connected");
+		return k->connected ? "linked" : "down";
+	}
+	if (k->ip)
+	{
+		snprintf(detail, cap, "KISS over UDP reports no link state");
+		return "unknown";
+	}
+	/* The node knows only that it holds the device open, not that the TNC answers */
+	snprintf(detail, cap, k->open ? "serial device open" : "serial device not open");
+	return k->open ? "linked" : "down";
+}
+
+const char *uiapi_axip_link(int sockets, const time_t *heard, int n, time_t now,
+	char *detail, size_t cap)
+{
+	int i, recent = 0;
+
+	if (sockets <= 0)
+	{
+		snprintf(detail, cap, "AXIP socket not open");
+		return "down";
+	}
+	if (n <= 0)
+	{
+		snprintf(detail, cap, "socket open, no peers mapped");
+		return "linked";
+	}
+	for (i = 0; i < n; i++)
+		if (heard[i] != 0 && now - heard[i] <= 3600)
+			recent++;
+	snprintf(detail, cap, "socket open, %d of %d peers heard in the last hour", recent, n);
+	return "linked";
+}
+
 /* ---- /api/ui handlers (linbpq only) ---- */
 
 #ifndef UIAPI_TEST
@@ -878,6 +934,8 @@ int uiapi_events_reply(char *response, size_t cap, const char *param, int sysop)
 #include "kiss.h"
 
 #include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 /* The HTTP layer's reply buffer is 250000 bytes (HTTPcode.c); stay well under. */
 #define UI_RESP_MAX	120000
@@ -1105,21 +1163,104 @@ int uiapi_api_station(char *response, char *token, char *param, int Local)
 	return jb_close(&b, "}\r\n");
 }
 
+/* bpqaxip.c:310; NULL for a port that is not BPQAXIP, as Cmd.c AXRESOLVER tests */
+extern struct AXIPPORTINFO *Portlist[];
+
+/* arp_table_entry.TCPState values, bpqaxip.c:275-277 */
+#define UI_AXIP_TCPLISTENING	1
+#define UI_AXIP_TCPCONNECTED	4
+
+static struct AXIPPORTINFO *port_axip(struct PORTCONTROL *P)
+{
+	int n = P->PORTNUMBER;
+
+	if (P->PORTTYPE != 0x10 || n <= 0 || n > MaxBPQPortNo)
+		return NULL;
+	return Portlist[n];
+}
+
+/* The AXIP driver's sockets that are open. The driver keeps no bind result:
+   OpenSockets (bpqaxip.c:854-946) reports a failed bind on the console and
+   keeps the socket, so a UDP socket counts only when getsockname gives it a
+   port. The raw IP 93 socket binds to any address with port 0
+   (bpqaxip.c:874-878), so for it being open is all there is to read. A TCP
+   map counts while connected or listening (bpqaxip.c:1021, 2784, 3031). */
+static int axip_sockets(struct AXIPPORTINFO *A)
+{
+	struct sockaddr_storage ss;
+	socklen_t len;
+	int i, n = 0, port;
+
+	if (A->needip && A->sock > 0)
+		n++;
+	for (i = 0; i < A->NumberofUDPPorts && i < MAXUDPPORTS + 2; i++)
+	{
+		if (A->udpsock[i] <= 0)
+			continue;
+		len = sizeof(ss);
+		if (getsockname(A->udpsock[i], (struct sockaddr *)&ss, &len) != 0)
+			continue;
+		port = ss.ss_family == AF_INET6 ? ((struct sockaddr_in6 *)&ss)->sin6_port
+			: ss.ss_family == AF_INET ? ((struct sockaddr_in *)&ss)->sin_port : 0;
+		if (port)
+			n++;
+	}
+	for (i = 0; i < A->arp_table_len && i < MAX_ENTRIES; i++)
+		if (A->arp_table[i].TCPState == UI_AXIP_TCPLISTENING
+			|| A->arp_table[i].TCPState == UI_AXIP_TCPCONNECTED)
+			n++;
+	return n;
+}
+
 static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
 {
 	struct TNCINFO *TNC = port_tnc(P);
+	struct AXIPPORTINFO *A = TNC ? NULL : port_axip(P);
 	struct PORTCONTROL *F = P;
-	NPASYINFO K = P->PORTTYPE == 0 ? port_kiss(&F) : NULL;
+	NPASYINFO K;
+	struct ui_kiss_link k;
 
 	if (TNC && TNC->Hardware == H_VARA)
 	{
 		snprintf(detail, cap, TNC->CONNECTED ? "connected to VARA modem" : "VARA modem not connected");
 		return TNC->CONNECTED ? "linked" : "down";
 	}
-	if (K && F->KISSTCP && !F->KISSSLAVE)
+	if (A)
 	{
-		snprintf(detail, cap, K->Connected ? "KISS TCP connected" : "KISS TCP not connected");
-		return K->Connected ? "linked" : "down";
+		time_t heard[MAX_ENTRIES];
+		int i, n = A->arp_table_len;
+
+		if (n < 0)
+			n = 0;
+		if (n > MAX_ENTRIES)
+			n = MAX_ENTRIES;
+		/* arp_table_entry.LastHeard, set on each packet from the peer (bpqaxip.c:2628) */
+		for (i = 0; i < n; i++)
+			heard[i] = A->arp_table[i].LastHeard;
+		return uiapi_axip_link(axip_sockets(A), heard, n, time(NULL), detail, cap);
+	}
+	if (P->PORTTYPE == 0)
+	{
+		/* The node's own PORTS command (Cmd.c:1753-1806) and /api/ports
+		   (nodeapi.c:414-460) read these fields of the device's first port:
+		   PortStopped first, then Connected for KISS TCP (KISSSLAVE: listening
+		   until a client connects, kiss.c:2134-2145), "UDP" for KISS over UDP,
+		   and idComDev for a serial device. idComDev is 0 when the open failed
+		   (kiss.c:485-490), after a read error closes it (kiss.c:553-558,
+		   612-616) and until the reopen every 30 s succeeds (kiss.c:535-545). */
+		K = port_kiss(&F);
+		memset(&k, 0, sizeof(k));
+		k.have = K != NULL;
+		k.stopped = P->PortStopped || F->PortStopped;
+		k.ip = F->PORTIPADDR.s_addr != 0 || F->KISSSLAVE;
+		k.tcp = F->KISSTCP;
+		k.slave = F->KISSSLAVE;
+		if (K)
+		{
+			k.connected = K->Connected;
+			k.open = K->idComDev != 0;
+		}
+		return uiapi_kiss_link(&k, detail, cap);
 	}
 	snprintf(detail, cap, "driver reports no link state");
 	return "unknown";

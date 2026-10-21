@@ -587,6 +587,76 @@ static void test_events_reply_needs_sysop(void)
 	passed++;
 }
 
+static void test_kiss_link_serial(void)
+{
+	struct ui_kiss_link k = {0};
+	char d[64];
+
+	k.have = 1;
+	k.open = 1;
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "linked") == 0);
+	assert(strcmp(d, "serial device open") == 0);
+	k.open = 0;		/* open failed, unplugged, or reopen pending */
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
+	assert(strcmp(d, "serial device not open") == 0);
+	k.stopped = 1;
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
+	assert(strcmp(d, "port stopped") == 0);
+	k.have = 0;		/* no device record: the node reports nothing */
+	k.stopped = 0;
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "unknown") == 0);
+	assert(strcmp(d, "driver reports no link state") == 0);
+	passed++;
+}
+
+static void test_kiss_link_tcp_udp_slave(void)
+{
+	struct ui_kiss_link k = {0};
+	char d[64];
+
+	k.have = 1;
+	k.ip = k.tcp = 1;
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
+	assert(strcmp(d, "KISS TCP not connected") == 0);
+	k.connected = 1;
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "linked") == 0);
+	assert(strcmp(d, "KISS TCP connected") == 0);
+	k.open = 1;		/* a TCP port's idComDev says nothing */
+	k.connected = 0;
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
+
+	k.slave = 1;		/* KISSSLAVE: the node listens for a client */
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "down") == 0);
+	assert(strcmp(d, "KISS TCP listening, no client") == 0);
+	k.connected = 1;
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "linked") == 0);
+	assert(strcmp(d, "KISS TCP client connected") == 0);
+
+	k.slave = k.tcp = 0;	/* KISS over UDP: no link state in the node */
+	assert(strcmp(uiapi_kiss_link(&k, d, sizeof d), "unknown") == 0);
+	assert(strcmp(d, "KISS over UDP reports no link state") == 0);
+	passed++;
+}
+
+static void test_axip_link(void)
+{
+	time_t now = T0 + 7200;
+	time_t heard[3] = { now - 10, now - 3600, now - 3601 };
+	time_t never[1] = { 0 };
+	char d[64];
+
+	assert(strcmp(uiapi_axip_link(0, heard, 3, now, d, sizeof d), "down") == 0);
+	assert(strcmp(d, "AXIP socket not open") == 0);
+	/* within the hour counts, as the node's AXIP page (HTTPcode.c) has it */
+	assert(strcmp(uiapi_axip_link(1, heard, 3, now, d, sizeof d), "linked") == 0);
+	assert(strcmp(d, "socket open, 2 of 3 peers heard in the last hour") == 0);
+	assert(strcmp(uiapi_axip_link(2, never, 1, now, d, sizeof d), "linked") == 0);
+	assert(strcmp(d, "socket open, 0 of 1 peers heard in the last hour") == 0);
+	assert(strcmp(uiapi_axip_link(1, NULL, 0, now, d, sizeof d), "linked") == 0);
+	assert(strcmp(d, "socket open, no peers mapped") == 0);
+	passed++;
+}
+
 int main(void)
 {
 	snprintf(dir, sizeof dir, "/tmp/uiapi-ring-test-%d", (int)getpid());
@@ -613,6 +683,9 @@ int main(void)
 	test_forward_else_leg_is_same_session();
 	test_forward_cms_refused_is_unreachable();
 	test_events_reply_needs_sysop();
+	test_kiss_link_serial();
+	test_kiss_link_tcp_udp_slave();
+	test_axip_link();
 
 	unlink(evlog);
 	snprintf(path, sizeof path, "%s/uiapi-counters.dat", dir);
