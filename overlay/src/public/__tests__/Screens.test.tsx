@@ -78,6 +78,7 @@ describe('Heard', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Telnet Server' }));
     expect(screen.getByText('Nothing heard on this port yet.')).toBeInTheDocument();
     expect(screen.getByText("Stations show here as the node's ports hear them.")).toBeInTheDocument();
+    expect(screen.queryByText(/radio ports hear/)).toBeNull();
   });
 });
 

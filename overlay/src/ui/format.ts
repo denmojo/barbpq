@@ -1,4 +1,5 @@
 // Display formatting shared by the screens. Times are shown in the browser's local zone.
+import type { LinkEvidence } from '../data/uiapi';
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 
@@ -52,4 +53,13 @@ export function modeName(code: string): string {
 export function joinAnd(items: string[]): string {
   if (items.length <= 1) return items.join('');
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/** A linked port's label from the node's evidence, the same on every screen: an open serial device
+ *  is Device open, an AXIP socket Linked, an observed radio link (or a node that sends no evidence)
+ *  Listening. */
+export function linkedLabel(evidence: LinkEvidence | null | undefined): string {
+  if (evidence === 'device') return 'Device open';
+  if (evidence === 'socket') return 'Linked';
+  return 'Listening';
 }

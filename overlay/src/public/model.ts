@@ -2,7 +2,7 @@
 import { getHeard, getStation } from '../data/uiapi';
 import type { Heard, LinkState, Station, StationPort } from '../data/uiapi';
 import type { Tone } from '../ui/StatusPill';
-import { formatFreq, joinAnd, modeName } from '../ui/format';
+import { formatFreq, joinAnd, linkedLabel, modeName } from '../ui/format';
 
 /** Winlink ports (those with a frequency) first, each group in the node's port order. */
 export function sortPorts(ports: StationPort[]): StationPort[] {
@@ -38,14 +38,6 @@ export function portMeta(p: StationPort, telnetPort: number | null): string {
 }
 
 export interface Pill { tone: Tone; label: string; title: string }
-
-/** A linked port's chip label from the node's evidence: an open serial device is Device open, an
- *  AXIP socket Linked, an observed radio link (or a node that sends no evidence) Listening. */
-function linkedLabel(evidence: LinkState['evidence']): string {
-  if (evidence === 'device') return 'Device open';
-  if (evidence === 'socket') return 'Linked';
-  return 'Listening';
-}
 
 /** Link state as a chip. "unknown" and a port the node left out are Unknown, never Listening. */
 export function linkPill(state: LinkState | undefined): Pill {

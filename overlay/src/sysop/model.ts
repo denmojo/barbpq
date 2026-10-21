@@ -5,7 +5,7 @@ import { parseForm } from '../data/forms';
 import { assertAuthorized, currentMailKey, getProtected, mailKey, MailSessionLostError, withSysop } from '../data/session';
 import type { LinkState, StationPort, UiEvent } from '../data/uiapi';
 import type { Tone } from '../ui/StatusPill';
-import { formatClock, formatStamp } from '../ui/format';
+import { formatClock, formatStamp, linkedLabel } from '../ui/format';
 
 const nbsp = (s: string | null | undefined): string => (s ?? '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -329,10 +329,10 @@ export function storeForward(fwd: Forwarding, events: UiEvent[] | undefined): St
   return { tone: used ? 'ok' : 'warn', value: 'Armed', meta, ...unknown };
 }
 
-/** A link state as the health card shows it. */
+/** A link state as the health card shows it, labelled as Overview's chips are. */
 export function linkValue(s: LinkState | undefined): { tone: Tone; value: string | null; reason: string } {
   if (!s) return { tone: 'idle', value: null, reason: 'The node has not reported a link state for this port' };
-  if (s.state === 'linked') return { tone: 'ok', value: 'Linked', reason: s.detail };
+  if (s.state === 'linked') return { tone: 'ok', value: linkedLabel(s.evidence), reason: s.detail };
   if (s.state === 'down') return { tone: 'down', value: 'Down', reason: s.detail };
   return { tone: 'idle', value: null, reason: s.detail };
 }

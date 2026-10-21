@@ -4,7 +4,7 @@ import { fixture } from '../../data/__tests__/helpers';
 import type { UiEvent } from '../../data/uiapi';
 import {
   eventTime, parseConnectScript, parseFwdDetails, parseFwdList, parseMailStatus, portLabel, scheduleNote,
-  shortAddr, storeForward, EVENT_WINDOW, type Forwarding, type FwdRecord,
+  linkValue, shortAddr, storeForward, EVENT_WINDOW, type Forwarding, type FwdRecord,
 } from '../model';
 import { station } from '../../public/__tests__/sample';
 
@@ -147,4 +147,20 @@ test('store and forward: a later fallback supersedes an unknown run; an older un
 test('store and forward: Off still carries the unknown last-used line', () => {
   const events = [ev('2026-10-20T16:50:00Z', 'forward', { route: 'RMS', cmsReachable: null })];
   expect(storeForward(rms({ enabled: false }), events)).toMatchObject({ tone: 'down', value: 'Off', meta: '', metaUnknown: expect.any(String) });
+});
+
+describe('linkValue', () => {
+  // Health uses the same labels as Overview's chips: what the node saw, not one word for every link.
+  test('an open serial device is Device open, an AXIP socket Linked, an observed link Listening', () => {
+    expect(linkValue({ number: 2, state: 'linked', detail: 'serial device open', evidence: 'device' }))
+      .toEqual({ tone: 'ok', value: 'Device open', reason: 'serial device open' });
+    expect(linkValue({ number: 4, state: 'linked', detail: 'socket open, no peers mapped', evidence: 'socket' }).value)
+      .toBe('Linked');
+    expect(linkValue({ number: 3, state: 'linked', detail: 'connected to VARA modem', evidence: 'link' }).value)
+      .toBe('Listening');
+    // an older node sends no evidence: read as an observed link
+    expect(linkValue({ number: 2, state: 'linked', detail: 'KISS TCP connected' }).value).toBe('Listening');
+    expect(linkValue({ number: 2, state: 'down', detail: 'serial device not open', evidence: null }))
+      .toEqual({ tone: 'down', value: 'Down', reason: 'serial device not open' });
+  });
 });
