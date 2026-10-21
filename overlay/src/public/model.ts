@@ -4,10 +4,19 @@ import type { Heard, LinkState, Station, StationPort } from '../data/uiapi';
 import type { Tone } from '../ui/StatusPill';
 import { formatFreq, joinAnd, modeName } from '../ui/format';
 
-/** Radio ports (those with a Winlink frequency) first, each group in the node's port order. */
+/** Winlink ports (those with a frequency) first, each group in the node's port order. */
 export function sortPorts(ports: StationPort[]): StationPort[] {
   return [...ports.filter((p) => p.freqHz !== null), ...ports.filter((p) => p.freqHz === null)];
 }
+
+/** An AXIP port carries AX.25 over the internet; /api/ui/station names its driver BPQAXIP. */
+export const isInternetLink = (p: StationPort): boolean => p.driver === 'BPQAXIP';
+
+/** Every port but the internet links, Winlink ports first. */
+export const radioPorts = (ports: StationPort[]): StationPort[] => sortPorts(ports.filter((p) => !isInternetLink(p)));
+
+/** The internet links, in the node's port order. */
+export const internetLinks = (ports: StationPort[]): StationPort[] => ports.filter(isInternetLink);
 
 function addrLabel(p: StationPort): string {
   if (p.driver === 'VARA') return 'TNC';
@@ -43,7 +52,8 @@ export interface Hero {
   sub2?: string;
 }
 
-/** The status line at the top of Overview. It says "on the air" only when a radio port is linked. */
+/** The status line at the top of Overview. It says "on the air" only when a radio port is linked;
+ *  internet links never count. */
 export function heroStatus(
   station: Station | undefined, links: LinkState[] | undefined,
   errors: { station?: Error; links?: Error } = {},
@@ -53,7 +63,8 @@ export function heroStatus(
       ? { tone: 'idle', title: 'Status unknown', sub: null, reason: errors.station.message }
       : { tone: 'idle', title: 'Checking the node', sub: null };
   }
-  const rf = station.ports.filter((p) => p.freqHz !== null);
+  const radio = station.ports.filter((p) => !isInternetLink(p));
+  const rf = radio.filter((p) => p.freqHz !== null);
   const what = rf.length ? 'Gateway' : 'Node';
   let sub: string | null = null;
   if (rf.length) {
@@ -66,7 +77,7 @@ export function heroStatus(
       ? { tone: 'idle', title: `${what} status unknown`, sub, reason: errors.links.message }
       : { tone: 'idle', title: `Checking the ${what.toLowerCase()}`, sub };
   }
-  const watched = (rf.length ? rf : station.ports).map((p) => links.find((l) => l.number === p.number));
+  const watched = (rf.length ? rf : radio).map((p) => links.find((l) => l.number === p.number));
   const states = watched.map((l) => l?.state ?? 'unknown');
   if (states.includes('linked')) return { tone: 'ok', title: `${what} on the air`, sub };
   if (states.length && states.every((s) => s === 'down')) {

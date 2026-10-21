@@ -65,6 +65,49 @@ test('hero on a node with no radio ports reads Node down when every port is down
     .toEqual(['Telnet not listening · VARA modem not connected']);
 });
 
+const axip = { number: 4, id: 'AXIP peer link', driver: 'BPQAXIP', freqHz: null, modes: [], addr: null, txtailMs: null };
+
+test('an AXIP port sits under Internet links, not Radio ports', async () => {
+  vi.mocked(ui.getStation).mockResolvedValue({ ...station, ports: [...station.ports, axip] });
+  vi.mocked(ui.getLinkStates).mockResolvedValue([
+    { number: 1, state: 'unknown', detail: 'driver reports no link state' },
+    { number: 3, state: 'linked', detail: 'connected to VARA modem' },
+    { number: 2, state: 'down', detail: 'KISS TCP not connected' },
+    { number: 4, state: 'linked', detail: 'socket open, 1 of 1 peers heard in the last hour' },
+  ]);
+  render(<Overview />);
+  const radio = await screen.findByRole('region', { name: 'Radio ports' });
+  const inet = await screen.findByRole('region', { name: 'Internet links' });
+  await within(radio).findByText('VARA FM', { selector: '.pname' });
+  expect(within(radio).queryByText('AXIP peer link')).toBeNull();
+  expect(within(inet).getByText('AXIP peer link', { selector: '.pname' })).toBeInTheDocument();
+  const chip = await within(inet).findByText('Listening');
+  expect(chip.closest('[title]')).toHaveAttribute('title', 'socket open, 1 of 1 peers heard in the last hour');
+});
+
+test('no Internet links card when the station has no AXIP port', async () => {
+  render(<Overview />);
+  await screen.findByRole('region', { name: 'Radio ports' });
+  expect(screen.queryByRole('region', { name: 'Internet links' })).toBeNull();
+});
+
+test('a linked AXIP port does not put a node with every radio down on the air', async () => {
+  vi.mocked(ui.getStation).mockResolvedValue({
+    ...station, ports: [...station.ports.map((p) => ({ ...p, freqHz: null })), axip],
+  });
+  vi.mocked(ui.getLinkStates).mockResolvedValue([
+    { number: 1, state: 'down', detail: 'Telnet not listening' },
+    { number: 3, state: 'down', detail: 'VARA modem not connected' },
+    { number: 2, state: 'down', detail: 'serial device not open' },
+    { number: 4, state: 'linked', detail: 'socket open, 1 of 1 peers heard in the last hour' },
+  ]);
+  render(<Overview />);
+  const hero = await screen.findByRole('region', { name: 'Node status' });
+  expect(await within(hero).findByText('Node down: radios not connected')).toBeInTheDocument();
+  expect(within(hero).getByText('Telnet not listening · VARA modem not connected · serial device not open')).toBeInTheDocument();
+  expect(hero).not.toHaveTextContent('socket open');
+});
+
 test('port cards show addresses, TXTAIL and the telnet port from getStation', async () => {
   render(<Overview />);
   await screen.findByText('VARA FM', { selector: '.pname' });

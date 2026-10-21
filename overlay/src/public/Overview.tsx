@@ -2,7 +2,7 @@ import { Lock, Mail, MessageSquare } from 'lucide-preact';
 import { getUsers } from '../data/api';
 import { usePoll } from '../data/poll';
 import { getCms, getCounts, getLinkStates, getStation } from '../data/uiapi';
-import type { CmsState, Counts, LinkState, Station } from '../data/uiapi';
+import type { CmsState, Counts, LinkState, Station, StationPort } from '../data/uiapi';
 import type { Poll } from '../data/poll';
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
@@ -13,7 +13,7 @@ import { Unknown } from '../ui/Unknown';
 import { Pending, Skel } from '../ui/Skel';
 import { formatAgo, formatClock, formatFreq, formatStamp, formatUptime } from '../ui/format';
 import { Footer } from './Footer';
-import { heroStatus, linkPillFrom, loadHeardFor, portMeta, sortPorts, viaText } from './model';
+import { heroStatus, internetLinks, linkPillFrom, loadHeardFor, portMeta, radioPorts, viaText } from './model';
 import { useUpdated } from './useUpdated';
 
 /** Today's time as a clock, an earlier day's with the date. */
@@ -67,6 +67,22 @@ function HeroCard({ station, links, cms }: { station: Poll<Station>; links: Poll
   );
 }
 
+/** One port line: number, name, the mono meta line and its link chip. */
+function PortRow({ p, links, telnetPort }: { p: StationPort; links: Poll<LinkState[]>; telnetPort: number | null }) {
+  const pill = linkPillFrom(links, p.number);
+  return (
+    <div class="port">
+      <div class="ptag">{p.number}</div>
+      <div class="pinfo">
+        <div class="pname">{p.id || p.driver}</div>
+        <div class="pmeta">{portMeta(p, telnetPort)}</div>
+      </div>
+      <span />
+      {pill ? <StatusPill {...pill} /> : <Skel />}
+    </div>
+  );
+}
+
 /** "Last 24 hours" only when the node says the window is full; "Counts" until it has answered. */
 export function countsTitle(c: Counts | undefined): string {
   if (!c) return 'Counts';
@@ -88,7 +104,8 @@ export function Overview() {
   const stale = [station, links, cms, counts, users, heard].some((p) => p.stale);
 
   const st = station.data;
-  const rf = st ? st.ports.filter((p) => p.freqHz !== null) : [];
+  const rf = st ? radioPorts(st.ports).filter((p) => p.freqHz !== null) : [];
+  const inet = st ? internetLinks(st.ports) : [];
   const freqs = [...new Set(rf.map((p) => formatFreq(p.freqHz as number)))];
   const recent = (heard.data ?? []).slice(0, 5);
   const c = counts.data;
@@ -104,20 +121,7 @@ export function Overview() {
       <div class="grid">
         <Card title="Radio ports" span={8} more={{ href: '#/ports', label: 'All ports →' }}>
           {station.error && !st && <ErrorNote error={station.error} />}
-          {st && sortPorts(st.ports).map((p) => {
-            const pill = linkPillFrom(links, p.number);
-            return (
-              <div class="port">
-                <div class="ptag">{p.number}</div>
-                <div class="pinfo">
-                  <div class="pname">{p.id || p.driver}</div>
-                  <div class="pmeta">{portMeta(p, st.telnetPort)}</div>
-                </div>
-                <span />
-                {pill ? <StatusPill {...pill} /> : <Skel />}
-              </div>
-            );
-          })}
+          {st && radioPorts(st.ports).map((p) => <PortRow p={p} links={links} telnetPort={st.telnetPort} />)}
         </Card>
 
         <Card title="Recently heard" span={4} more={{ href: '#/heard', label: 'All →' }}>
@@ -137,6 +141,12 @@ export function Overview() {
             </ul>
           ) : <EmptyState icon="📻" title="Nothing heard yet." hint="Stations show here as the radio ports hear them." />)}
         </Card>
+
+        {inet.length > 0 && (
+          <Card title="Internet links" span={12}>
+            {inet.map((p) => <PortRow p={p} links={links} telnetPort={st?.telnetPort ?? null} />)}
+          </Card>
+        )}
 
         <Card title="Who's connected" span={6}>
           {users.error && !users.data && <ErrorNote error={users.error} />}
