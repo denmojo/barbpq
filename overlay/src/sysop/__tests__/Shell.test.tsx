@@ -42,9 +42,9 @@ beforeEach(() => {
     { number: 2, state: 'down', detail: 'KISS TCP not connected' },
   ]);
   vi.mocked(ui.getEvents).mockImplementation(async (limit?: number) => ([
-    { t: '2026-10-20T16:58:00Z', kind: 'forward', detail: { route: 'CMS', cmsReachable: true } },
+    { t: '2026-10-20T16:58:00Z', kind: 'forward', detail: { route: 'RMS via port 1', cmsReachable: true } },
     { t: '2026-10-20T16:30:00Z', kind: 'cfgsave', detail: {} },
-    { t: '2026-10-20T16:20:00Z', kind: 'forward', detail: { route: 'W6SAR-10 via port 2', cmsReachable: false } },
+    { t: '2026-10-20T16:20:00Z', kind: 'forward', detail: { route: 'RMS via port 1', cmsReachable: false } },
     { t: '2026-10-20T13:30:00Z', kind: 'restart', detail: {} },
   ] as UiEvent[]).slice(0, limit));
   mailPages();
@@ -86,6 +86,14 @@ test('store and forward reads Never used without a forward run while CMS was unr
   expect(card('Store and forward')).toHaveTextContent('Armed');
 });
 
+test('store and forward: an RMS run the node logged with no CMS result shows Unknown, not Never used, with the reason as a tooltip', async () => {
+  vi.mocked(ui.getEvents).mockResolvedValue([{ t: '2026-10-20T16:58:00Z', kind: 'forward', detail: { route: 'RMS via port 1', cmsReachable: null } }]);
+  render(<SysopLayout />);
+  await waitFor(() => expect(card('Store and forward')).toHaveTextContent('Unknown'));
+  expect(card('Store and forward')).not.toHaveTextContent('Never used');
+  expect(within(card('Store and forward')).getByText('Unknown')).toHaveAttribute('title', expect.stringContaining('logged no CMS result'));
+});
+
 test('CMS with no attempt yet is Unknown with a reason, never Reachable', async () => {
   vi.mocked(ui.getCms).mockResolvedValue({ lastAttempt: null, lastSuccess: null, ok: null });
   render(<SysopLayout />);
@@ -111,7 +119,7 @@ test('recent changes lists the first 10 of the single getEvents(200) poll, newes
   await waitFor(() => expect(region.querySelectorAll('li')).toHaveLength(4));
   expect(vi.mocked(ui.getEvents).mock.calls).toEqual([[200]]);
   expect(Array.from(region.querySelectorAll('time')).map((t) => t.textContent)).toEqual(['09:58', '09:30', '09:20', '06:30']);
-  expect(region).toHaveTextContent('Forwarded via W6SAR-10 via port 2 while CMS was unreachable');
+  expect(region).toHaveTextContent('Forwarded via RMS via port 1 while CMS was unreachable');
   expect(region).toHaveTextContent('Node restarted');
 });
 

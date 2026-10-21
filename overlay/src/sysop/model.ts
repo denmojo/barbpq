@@ -209,19 +209,49 @@ export interface StoreForward {
   metaUnknown?: string;
 }
 
-/** The newest forward run whose own CMS attempt failed (the node logs each run after that attempt). Events arrive newest first. */
-export function lastFallback(events: UiEvent[]): UiEvent | undefined {
-  return events.find((e) => e.kind === 'forward' && e.detail.cmsReachable === false);
+/**
+ * A forward run to the RMS record. The node logs a run to any partner, routed as "<partner call>"
+ * or "<partner call> via port N"; a run to another partner may have taken the result of someone
+ * else's CMS attempt, so it says nothing about the RMS fallback.
+ */
+export function isRunTo(e: UiEvent, call: string): boolean {
+  const route = e.detail.route;
+  return e.kind === 'forward' && typeof route === 'string' && (route.split(' ')[0] ?? '').toUpperCase() === call.toUpperCase();
 }
 
-/** Armed when the RMS record forwards; last used from the newest forward with the CMS unreachable. */
+/** The newest run to the RMS record whose own CMS attempt failed (the node logs each run after that attempt). Events arrive newest first. */
+export function lastFallback(events: UiEvent[], call: string = RMS): UiEvent | undefined {
+  return events.find((e) => isRunTo(e, call) && e.detail.cmsReachable === false);
+}
+
+/**
+ * The newest run to the RMS record that the node logged with no CMS result (null: none came
+ * within its wait), when it is newer than the last fallback. Such a run may have fallen back,
+ * so it leaves "Never used" or the last-used date unknown. Only a later fallback settles it;
+ * a later run that reached the CMS says nothing about the earlier one.
+ */
+export function undecidedRun(events: UiEvent[], call: string = RMS): UiEvent | undefined {
+  for (const e of events) {
+    if (!isRunTo(e, call)) continue;
+    if (e.detail.cmsReachable === false) return undefined;
+    if (e.detail.cmsReachable === null) return e;
+  }
+  return undefined;
+}
+
+/** Armed when the RMS record forwards; last used from the newest RMS run with the CMS unreachable. */
 export function storeForward(fwd: Forwarding, events: UiEvent[] | undefined): StoreForward {
   if (!fwd.rms) return { tone: 'idle', value: 'Not set up', meta: 'No RMS forwarding record on the BBS' };
-  const used = events ? lastFallback(events) : undefined;
+  const call = fwd.rms.call;
+  const used = events ? lastFallback(events, call) : undefined;
+  const open = events ? undecidedRun(events, call) : undefined;
   // A full window with no fallback says nothing about the events before it.
   const cut = events !== undefined && !used && events.length >= EVENT_WINDOW;
-  const meta = events === undefined || cut ? '' : used ? `Last used ${formatStamp(used.t)}` : 'Never used';
-  const unknown = cut ? { metaUnknown: `No fallback in the last ${EVENT_WINDOW} events` } : {};
+  const unknownWhy = open
+    ? `The ${call} run at ${formatStamp(open.t)} logged no CMS result within the node's wait, so whether it fell back is not known`
+    : cut ? `No fallback in the last ${EVENT_WINDOW} events` : undefined;
+  const meta = events === undefined || unknownWhy ? '' : used ? `Last used ${formatStamp(used.t)}` : 'Never used';
+  const unknown = unknownWhy ? { metaUnknown: unknownWhy } : {};
   if (!fwd.rms.enabled) return { tone: 'down', value: 'Off', meta, reason: 'Forwarding is not enabled on the RMS record', ...unknown };
   return { tone: used ? 'ok' : 'warn', value: 'Armed', meta, ...unknown };
 }

@@ -61,9 +61,9 @@ test('connect script: a bare connect is routed by the node; only the first conne
 
 test('store and forward: Armed and Last used from the newest forward with the CMS unreachable', () => {
   const events = [
-    ev('2026-10-20T16:58:00Z', 'forward', { route: 'CMS', cmsReachable: true }),
-    ev('2026-10-20T16:50:00Z', 'forward', { route: 'W6SAR-10 via port 2', cmsReachable: false }),
-    ev('2026-10-19T12:00:00Z', 'forward', { route: 'W6SAR-10 via port 2', cmsReachable: false }),
+    ev('2026-10-20T16:58:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: true }),
+    ev('2026-10-20T16:50:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: false }),
+    ev('2026-10-19T12:00:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: false }),
   ];
   expect(storeForward(rms(), events)).toEqual({ tone: 'ok', value: 'Armed', meta: 'Last used Oct 20 09:50' });
 });
@@ -100,4 +100,51 @@ test('store and forward: no fallback in a full 200-event window is Unknown, not 
 test('store and forward: no fallback in a log shorter than the window is Never used', () => {
   const short = Array.from({ length: EVENT_WINDOW - 1 }, () => ev('2026-10-20T16:00:00Z', 'restart'));
   expect(storeForward(rms(), short)).toEqual({ tone: 'warn', value: 'Armed', meta: 'Never used' });
+});
+
+// N2: the node logs a forward event for a run to any partner, and the CMS result a run takes
+// can come from someone else's attempt. Only runs to the RMS record count.
+test('store and forward: a fallback logged for a run to another partner is not the RMS fallback', () => {
+  const events = [
+    ev('2026-10-20T16:50:00Z', 'forward', { route: 'AD6DM via port 2', cmsReachable: false }),
+    ev('2026-10-20T16:40:00Z', 'forward', { route: 'RMSX', cmsReachable: false }),
+    ev('2026-10-20T16:30:00Z', 'forward', { cmsReachable: false }),
+  ];
+  expect(storeForward(rms(), events)).toEqual({ tone: 'warn', value: 'Armed', meta: 'Never used' });
+  const withRms = [...events, ev('2026-10-19T12:00:00Z', 'forward', { route: 'rms', cmsReachable: false })];
+  expect(storeForward(rms(), withRms)).toMatchObject({ tone: 'ok', meta: 'Last used Oct 19 05:00' });
+});
+
+// N1: a run whose CMS result did not come within the node's wait is logged with cmsReachable null.
+test('store and forward: an RMS run with no CMS result makes Never used Unknown, with the reason', () => {
+  const events = [
+    ev('2026-10-20T16:58:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: true }),
+    ev('2026-10-20T16:50:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: null }),
+  ];
+  const sf = storeForward(rms(), events);
+  expect(sf).toMatchObject({ tone: 'warn', value: 'Armed', meta: '' });
+  expect(sf.metaUnknown).toBe('The RMS run at Oct 20 09:50 logged no CMS result within the node\'s wait, so whether it fell back is not known');
+});
+
+test('store and forward: an unknown RMS run newer than the last fallback makes Last used Unknown', () => {
+  const events = [
+    ev('2026-10-20T16:50:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: null }),
+    ev('2026-10-19T12:00:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: false }),
+  ];
+  expect(storeForward(rms(), events)).toMatchObject({ tone: 'ok', meta: '', metaUnknown: expect.stringContaining('Oct 20 09:50') });
+});
+
+test('store and forward: a later fallback supersedes an unknown run; an older unknown run, or one to another partner, changes nothing', () => {
+  expect(storeForward(rms(), [
+    ev('2026-10-20T16:58:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: false }),
+    ev('2026-10-20T16:50:00Z', 'forward', { route: 'RMS via port 1', cmsReachable: null }),
+  ])).toEqual({ tone: 'ok', value: 'Armed', meta: 'Last used Oct 20 09:58' });
+  expect(storeForward(rms(), [
+    ev('2026-10-20T16:58:00Z', 'forward', { route: 'AD6DM via port 2', cmsReachable: null }),
+  ])).toEqual({ tone: 'warn', value: 'Armed', meta: 'Never used' });
+});
+
+test('store and forward: Off still carries the unknown last-used line', () => {
+  const events = [ev('2026-10-20T16:50:00Z', 'forward', { route: 'RMS', cmsReachable: null })];
+  expect(storeForward(rms({ enabled: false }), events)).toMatchObject({ tone: 'down', value: 'Off', meta: '', metaUnknown: expect.any(String) });
 });
