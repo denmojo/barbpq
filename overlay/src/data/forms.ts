@@ -10,6 +10,10 @@ export interface FormField {
   value: string;
   options?: FieldOption[];
   checked?: boolean;
+  /** Present (true) only on a disabled control; a browser does not post it. */
+  disabled?: true;
+  /** Present (true) only on a select that allows several options. */
+  multiple?: true;
 }
 export interface FormSpec { action: string; method: 'get' | 'post'; fields: FormField[] }
 
@@ -30,17 +34,18 @@ export function parseForm(html: string, formIndex = 0, baseUrl = '/'): FormSpec 
   for (const el of Array.from(form.elements)) {
     const name = el.getAttribute('name');
     if (!name) continue;
+    const flags = (el as HTMLInputElement).disabled ? { disabled: true as const } : {};
     if (el instanceof HTMLSelectElement) {
       const options = Array.from(el.options).map((o) => ({ value: o.value, label: o.text, selected: o.selected }));
-      fields.push({ name, type: 'select', value: el.value, options });
+      fields.push({ name, type: 'select', value: el.value, options, ...(el.multiple ? { multiple: true as const } : {}), ...flags });
     } else if (el instanceof HTMLTextAreaElement) {
-      fields.push({ name, type: 'textarea', value: el.value });
+      fields.push({ name, type: 'textarea', value: el.value, ...flags });
     } else if (el instanceof HTMLInputElement) {
       const type = (el.getAttribute('type') ?? 'text').toLowerCase();
       if (type === 'checkbox' || type === 'radio') {
-        fields.push({ name, type, value: el.hasAttribute('value') ? el.value : 'on', checked: el.checked });
+        fields.push({ name, type, value: el.hasAttribute('value') ? el.value : 'on', checked: el.checked, ...flags });
       } else {
-        fields.push({ name, type, value: el.getAttribute('value') ?? '' });
+        fields.push({ name, type, value: el.getAttribute('value') ?? '', ...flags });
       }
     }
   }
@@ -48,14 +53,19 @@ export function parseForm(html: string, formIndex = 0, baseUrl = '/'): FormSpec 
   return { action: u.pathname + u.search, method, fields };
 }
 
+/** A browser sends every line break in a textarea as CRLF. */
+const crlf = (v: string): string => v.replace(/\r\n|\r|\n/g, '\r\n');
+
 /**
  * Build the field/value pairs a browser would send. Every field goes, edited or not, so a
- * save never drops settings the user did not touch.
+ * save never drops settings the user did not touch. Disabled fields are left out.
  *
  * `values` is keyed by field name; for a repeated name `name#2` addresses the third field
- * (`name` alone addresses the first). Checkbox: '' unchecks, any other string checks.
- * Radio: the value selects the option. Submit buttons are sent only when named in `values`
- * (the button that was pressed).
+ * (`name` alone addresses the first). Checkbox: '' unchecks, any other string checks, and a
+ * checked box posts its own value ("on" when it has none). Radio: the value selects the
+ * option; a bare name applies to every radio of that name. Select multiple: the given
+ * value lists the picked options separated by "\n". Textarea line breaks go out as CRLF.
+ * Submit buttons are sent only when named in `values` (the button that was pressed).
  */
 export function formPairs(spec: FormSpec, values: Record<string, string>): [string, string][] {
   const seen = new Map<string, number>();
@@ -64,6 +74,7 @@ export function formPairs(spec: FormSpec, values: Record<string, string>): [stri
   for (const f of spec.fields) {
     const n = seen.get(f.name) ?? 0;
     seen.set(f.name, n + 1);
+    if (f.disabled) continue;
     const key = `${f.name}#${n}` in values ? `${f.name}#${n}` : n === 0 && f.name in values ? f.name : null;
     const given = key === null ? undefined : values[key];
     switch (f.type) {
@@ -75,17 +86,31 @@ export function formPairs(spec: FormSpec, values: Record<string, string>): [stri
         break;
       case 'checkbox': {
         const on = given === undefined ? !!f.checked : given !== '';
-        if (on) out.push([f.name, given !== undefined && given !== '' ? given : f.value]);
+        if (on) out.push([f.name, f.value]);
         break;
       }
       case 'radio': {
-        const on = given === undefined ? !!f.checked : given === f.value;
+        const pick = `${f.name}#${n}` in values ? values[`${f.name}#${n}`] : values[f.name];
+        const on = pick === undefined ? !!f.checked : pick === f.value;
         if (on && !radioPicked.has(f.name)) {
           radioPicked.add(f.name);
           out.push([f.name, f.value]);
         }
         break;
       }
+      case 'select':
+        if (f.multiple) {
+          const picked = given === undefined
+            ? (f.options ?? []).filter((o) => o.selected).map((o) => o.value)
+            : given.split('\n').filter((v) => v !== '');
+          for (const v of picked) out.push([f.name, v]);
+        } else {
+          out.push([f.name, given ?? f.value]);
+        }
+        break;
+      case 'textarea':
+        out.push([f.name, crlf(given ?? f.value)]);
+        break;
       default:
         out.push([f.name, given ?? f.value]);
     }

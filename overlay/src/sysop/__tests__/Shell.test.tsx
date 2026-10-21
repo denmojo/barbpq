@@ -126,7 +126,7 @@ test('sidebar: Health, Network, Mail, System, SYSOP badge, nothing links an old 
   expect(Array.from(nav.querySelectorAll('.navh')).map((n) => n.textContent)).toEqual(['Network', 'Mail', 'System']);
   expect(Array.from(nav.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
     '#/health', '#/ports', '#/heard', '#/links', '#/sessions', '#/messages', '#/forwarding', '#/bbsusers',
-    '#/housekeeping', '#/settings', '#/console', '#/logs',
+    '#/housekeeping', '#/mailsettings', '#/settings', '#/console', '#/logs',
   ]);
   expect(nav.querySelector('[aria-current="page"]')).toHaveTextContent('Health');
   expect(screen.getByText('SYSOP')).toBeInTheDocument();
@@ -143,7 +143,7 @@ test('recent changes stops at 10 entries of the 200-event poll', async () => {
   expect(region.querySelector('time')).toHaveTextContent('09:59');
 });
 
-test.each(['messages', 'forwarding', 'bbsusers', 'housekeeping', 'console', 'logs'] as const)(
+test.each(['console', 'logs'] as const)(
   'a screen not built yet (%s) shows Coming in this release and the footer', (r) => {
     route.value = r;
     const { container } = render(<SysopLayout />);
@@ -175,9 +175,9 @@ test('⌘K opens the palette, arrows move, Enter navigates, Escape closes', asyn
   const box = screen.getByRole('combobox');
   expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
   expect(document.activeElement).toBe(box);
-  fireEvent.input(box, { target: { value: 'mail' } });
+  fireEvent.input(box, { target: { value: 'go to mail' } });
   const opts = screen.getAllByRole('option');
-  expect(opts.map((o) => o.textContent)).toEqual(['Messages', 'Forwarding', 'BBS users', 'Housekeeping']);
+  expect(opts.map((o) => o.textContent)).toEqual(['Messages', 'Forwarding', 'BBS users', 'Housekeeping', 'Mail settings']);
   expect(opts[0]).toHaveAttribute('aria-selected', 'true');
   fireEvent.keyDown(box, { key: 'ArrowDown' });
   expect(screen.getAllByRole('option')[1]).toHaveAttribute('aria-selected', 'true');

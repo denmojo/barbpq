@@ -1,4 +1,4 @@
-import { Fragment } from 'preact';
+import { Fragment, type JSX } from 'preact';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import { navigate, route, type Route } from '../app/router';
 import { signOut } from '../data/session';
@@ -18,13 +18,29 @@ import { registerPaletteItems } from './palette';
 import { ShellContext, useShellPolls, type ShellData } from './shell';
 import { NodeSettings, useSettingsPalette } from './settings/NodeSettings';
 import { resetSettings } from './settings/draft';
+import { BbsUsers } from './mail/BbsUsers';
+import { resetMail } from './mail/drafts';
+import { Forwarding } from './mail/Forwarding';
+import { Housekeeping } from './mail/Housekeeping';
+import { MailSettings } from './mail/MailSettings';
+import { Messages } from './mail/Messages';
+import { useMailPalette } from './mail/palette';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const PALETTE_KEY = IS_MAC ? '⌘K' : 'Ctrl K';
 
+const MAIL_SCREENS: Partial<Record<Route, () => JSX.Element>> = {
+  messages: () => <Messages />,
+  forwarding: () => <Forwarding />,
+  bbsusers: () => <BbsUsers />,
+  housekeeping: () => <Housekeeping />,
+  mailsettings: () => <MailSettings />,
+};
+
 function doSignOut(): void {
   // An explicit sign-out forgets the loaded config and any draft (an expired session keeps them).
   resetSettings();
+  resetMail();
   signOut();
   navigate('overview');
 }
@@ -79,6 +95,7 @@ export function SysopLayout() {
   usePaletteHotkey(openPalette);
   usePaletteBase();
   useSettingsPalette();
+  useMailPalette();
 
   const st = data.station.data;
   const call = st?.call;
@@ -141,7 +158,7 @@ export function SysopLayout() {
         <Sidebar current={r} data={data} open={menu} onPick={() => setMenu(false)} />
 
         <main class="sys-main">
-          {r === 'health' ? <Health /> : r === 'settings' ? <NodeSettings /> : PublicScreen ? (
+          {MAIL_SCREENS[r] ? MAIL_SCREENS[r]() : r === 'health' ? <Health /> : r === 'settings' ? <NodeSettings /> : PublicScreen ? (
             <>
               <div class="titlebar"><h1>{labelOf(r)}</h1></div>
               <PublicScreen />

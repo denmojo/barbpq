@@ -1,0 +1,132 @@
+<!-- Version 4 10/10/2015 -->
+<form style="font-family: monospace;" method="post" action="/Mail/UserSave?M0000833050B8">
+<h3 align=center>Update User RMS</h3>
+ <div style="position:absolute; left:10px;"> <table style="text-align: left; height: 156px;" cellpadding="2" cellspacing="0">
+    <tbody>
+      <tr>
+        <td style="vertical-align: middle; width: 20px;"><input checked=checked name="BBS" type="checkbox"></td>
+        <td style="width: 250px;">BBS</td>
+        <td style="width: 20px;"><input  name="PermitEmail" type="checkbox"></td>
+        <td style="width: 250px;">Permit Email</td>
+      </tr>
+      <tr>
+        <td style="vertical-align: middle; width: 20px;"><input name="PMS" type="checkbox"></td>
+        <td>PMS</td>
+        <td style="width: 20px;"><input name="RMSExUser" type="checkbox"></td>
+        <td>RMS Express User</td>
+      </tr>
+      <tr>
+        <td style="vertical-align: middle; width: 20px;"><input name="SYSOP" type="checkbox"></td>
+        <td>SYSOP</td>
+        <td style="width: 20px;"><input  name="PollRMS" type="checkbox"></td>
+        <td>Poll RMS</td>
+      </tr>
+      <tr>
+        <td style="vertical-align: middle; width: 20px;"><input name="Expert" type="checkbox"></td>
+        <td>Expert</td>
+        <td colspan="2" rowspan="1">&nbsp;&nbsp;&nbsp;For SSID's&nbsp;
+<input style="width: 15px;" name="SSID1" value="">
+<input style="width: 15px;" name="SSID2" value="">
+<input style="width: 15px;" name="SSID3" value="">
+<input style="width: 15px;" name="SSID4" value=""></td>
+      </tr>
+      <tr>
+        <td style="vertical-align: top; width: 19px;"><input name="Excluded" type="checkbox"></td>
+        <td>Excluded</td>
+        <td style="width: 20px;"><input name="Hold" type="checkbox"></td>
+        <td>Hold Messages</td>
+      </tr>
+      <tr>
+        <td style="vertical-align: top; width: 19px;"><input name="SYSOPLM" type="checkbox"></td>
+        <td>Include SYSOP msgs in LM </td>
+        <td style="width: 20px;"><input name="NOWINLINK" type="checkbox"></td>
+        <td>Don't add @winlink.org</td>
+        </td>
+        <td><br>
+        </td>
+      </tr>
+      <tr>
+       <td style="width: 20px;"><input checked=checked name="ALLOWBULLS" type="checkbox"></td>
+       <td>Allow Sending Bulls</td>
+        </td>
+		<td style="width: 20px;"><input name="NTSMPS" type="checkbox"></td>
+       <td>NTS MPS</td>
+     </tr>
+		<td style="width: 20px;"><input name="RMSREDIR" type="checkbox"></td>
+       <td>Redirect to RMS</td>
+     </tr>
+     <tr><td><input name=APRSMFOR type=checkbox></td>       <td>Send APRS Mail For to SSID       <input style="width: 15px;" name=APRSSSID value=></td>     </tr>
+
+	  </tbody>  </table>  <br>
+  <br>
+  <table style="text-align: left;" border="0" cellpadding="2" cellspacing="0">
+    <tbody>
+      <tr>
+        <td>Connects In<br>
+        </td>
+        <td style="width: 60px;">0<br>
+        </td>
+        <td>Msgs in<br>
+        </td>
+        <td style="width: 50px;">0<br>
+        </td>
+        <td>Rejects In<br>
+        </td>
+        <td style="width: 50px;">0<br>
+        </td>
+      </tr>
+      <tr>
+        <td>Connects Out<br>
+        </td>
+        <td>0<br>
+        </td>
+        <td>Msgs Out<br>
+        </td>
+        <td>0<br>
+        </td>
+        <td>Rejects Out<br>
+        </td>
+        <td>0<br>
+        </td>
+      </tr>
+      <tr>
+        <td>Bytes In <br>
+        </td>
+        <td>0<br>
+        </td>
+        <td>Last Connect</td>
+        <td colspan="3" rowspan="1">01-Jan 00:00Z</td>
+      </tr>
+      <tr>
+        <td>Bytes Out<br>
+        </td>
+        <td>0</td>
+        <td><br>
+        </td>
+        <td><br>
+        </td>
+        <td style="text-align: center;">Last Listed<br>
+        </td>
+        <td><input style="width: 40px;" name="LastListed" value="0"><br>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <br>
+  <br>
+Name &nbsp;&nbsp;&nbsp; <input style="width:200px;" name="Name" value=""><br>
+Password <input style="width:120px;" name="Password" value="">&nbsp;
+CMS Pass <input name="CMSPass" value="">&nbsp;
+<br>
+QTH&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <input style="width:260px;" name="QTH" value=""> ZIP <input style="width:80px;" name="ZIP" value=""><br>
+Home BBS <input style="width:360px;" name="HomeBBS" value=""><br>
+  <br>
+  <div align="center"><input class='btn' onclick=save(this.form) value=Update type=button class='btn'>
+  <input class='btn' onclick=del(this.form) value=Delete type=button class='btn'>
+  <input class='btn' onclick=add(this.form) value=Add type=button class='btn'>
+   <input style="width:60px; text-transform:uppercase;" name="NewCall">
+  </div>
+  </div>
+</form>
+
+</body></html>

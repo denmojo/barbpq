@@ -1,4 +1,4 @@
-import { parseForm, submitForm, encodeCfgSave, cfgSaveTooLarge, formPairs, saveConfig, CfgTooLargeError, extractConfigText, SaveFailedError } from '../forms';
+import { parseForm, submitForm, encodeCfgSave, cfgSaveTooLarge, formPairs, encodePairs, saveConfig, CfgTooLargeError, extractConfigText, SaveFailedError } from '../forms';
 import { decodeLatin1, encodeLatin1Form, NonLatin1Error, latin1Bytes } from '../http';
 import { sysop } from '../session';
 import { parseMailKey } from '../pages';
@@ -191,4 +191,44 @@ test('saveConfig throws SaveFailedError when the reply lacks the confirmation', 
   vi.unstubAllGlobals();
   stubFetch({ '/Node/EditCfg.html': page, '/Node/CFGSave?N1': '<html>whatever</html>' });
   await expect(saveConfig('X')).rejects.toBeInstanceOf(SaveFailedError);
+});
+
+// What a browser puts in the form data set (HTML "constructing the entry list"), so a mail
+// form posts exactly what the node's own page would.
+
+test('a disabled field is not posted', () => {
+  const spec = parseForm('<form action=/x><input name=a value=1 disabled><input name=b value=2><textarea name=t disabled>x</textarea></form>');
+  expect(spec.fields[0]).toMatchObject({ name: 'a', disabled: true });
+  expect(formPairs(spec, {})).toEqual([['b', '2']]);
+  expect(formPairs(spec, { 'a#0': '9' })).toEqual([['b', '2']]);
+});
+
+test('a select multiple posts one pair per selected option; "\\n" separates given values', () => {
+  const spec = parseForm('<form action=/x><select name=m multiple><option value=a selected>A<option value=b>B<option value=c selected>C</select></form>');
+  expect(spec.fields[0]).toMatchObject({ type: 'select', multiple: true });
+  expect(formPairs(spec, {})).toEqual([['m', 'a'], ['m', 'c']]);
+  expect(formPairs(spec, { m: 'b' })).toEqual([['m', 'b']]);
+  expect(formPairs(spec, { m: '' })).toEqual([]);
+});
+
+test('textarea line breaks go out as CRLF, as a browser sends them', () => {
+  const spec = parseForm('<form action=/x><textarea name=t>a\nb</textarea><input name=i value=z></form>');
+  expect(formPairs(spec, {})).toEqual([['t', 'a\r\nb'], ['i', 'z']]);
+  expect(formPairs(spec, { t: 'x\ny\r\nz\r' })).toEqual([['t', 'x\r\ny\r\nz\r\n'], ['i', 'z']]);
+  expect(encodePairs(formPairs(spec, { t: 'A\nB' }))).toBe('t=A%0D%0AB&i=z');
+});
+
+test('a checked checkbox posts its own value attribute, or "on" when it has none', () => {
+  const spec = parseForm('<form action=/x><input type=checkbox name=Deltobin value=Deltobin><input type=checkbox name=EnF></form>');
+  expect(formPairs(spec, { Deltobin: 'on', EnF: 'on' })).toEqual([['Deltobin', 'Deltobin'], ['EnF', 'on']]);
+  expect(formPairs(spec, { Deltobin: '', EnF: '' })).toEqual([]);
+});
+
+test('a bare radio name picks the option among every radio of that name', () => {
+  const html = '<form action=/x><input type=radio name=Type value=TypeB checked><input type=radio name=Type value=TypeP><input name=Type value=T1></form>';
+  const spec = parseForm(html);
+  expect(formPairs(spec, { Type: 'TypeP' })).toEqual([['Type', 'TypeP'], ['Type', 'T1']]);
+  expect(formPairs(spec, {})).toEqual([['Type', 'TypeB'], ['Type', 'T1']]);
+  // the text field sharing the name is addressed by its index
+  expect(formPairs(spec, { Type: 'TypeP', 'Type#2': 'H' })).toEqual([['Type', 'TypeP'], ['Type', 'H']]);
 });

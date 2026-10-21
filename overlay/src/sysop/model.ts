@@ -100,15 +100,30 @@ export interface Forwarding {
 
 export const RMS = 'RMS';
 
-async function postMail(path: string, body: string): Promise<string> {
-  return assertAuthorized(await postBody(`/Mail/${path}?${await mailKey()}`, latin1Bytes(body)));
+/** POST to a mail handler with the session key. A string body goes as ISO-8859-1. */
+export async function postMail(path: string, body: string | Uint8Array): Promise<string> {
+  const bytes = typeof body === 'string' ? latin1Bytes(body) : body;
+  return assertAuthorized(await postBody(`/Mail/${path}?${await mailKey()}`, bytes));
+}
+
+let mailQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run fn alone among the mail requests that pick a record. FwdDetails, UserDetails and
+ * WPDetails set the node session's current record, and FWDSave, UserSave and WPSave write to
+ * whichever record that is, so a pick and its save must not interleave with another pick.
+ */
+export function exclusive<T>(fn: () => Promise<T>): Promise<T> {
+  const run = mailQueue.then(fn, fn);
+  mailQueue = run.catch(() => undefined);
+  return run;
 }
 
 export async function fetchForwarding(): Promise<Forwarding> {
   return withSysop(async () => {
     const partners = parseFwdList(await postMail('FwdList.txt', ''));
     const call = partners.find((p) => p.toUpperCase() === RMS);
-    const rms = call ? parseFwdDetails(await postMail('FwdDetails', call), call) : null;
+    const rms = call ? parseFwdDetails(await exclusive(() => postMail('FwdDetails', call)), call) : null;
     return { partners, rms };
   });
 }

@@ -1,0 +1,46 @@
+{"msgs":[
+{
+"id": "4",
+"mid": "4_AD6DM",
+"rcvd": "1792540811",
+"type": "P",
+"status": "N",
+"to": "SYSOP",
+"from": "SYSTEM",
+"size": "168",
+"subject": "Housekeeping Results"
+},
+{
+"id": "3",
+"mid": "3_AD6DM",
+"rcvd": "1792540331",
+"type": "P",
+"status": "N",
+"to": "SYSOP",
+"from": "SYSTEM",
+"size": "16",
+"subject": "Message 2 Held - User has Hold Messages flag set"
+},
+{
+"id": "2",
+"mid": "2_AD6DM",
+"rcvd": "1792540328",
+"type": "P",
+"status": "H",
+"to": "SYSOP",
+"from": "N0CALL",
+"size": "7",
+"subject": "uiapi test"
+},
+{
+"id": "1",
+"mid": "1_AD6DM",
+"rcvd": "1792540278",
+"type": "P",
+"status": "N",
+"to": "SYSOP",
+"from": "SYSTEM",
+"size": "62",
+"subject": "New User N0CALL"
+}
+]}

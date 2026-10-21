@@ -2,7 +2,7 @@ import { signal } from '@preact/signals';
 
 export const ROUTES = [
   'overview', 'ports', 'heard', 'links', 'sessions', 'health', 'messages',
-  'forwarding', 'bbsusers', 'housekeeping', 'settings', 'console', 'logs',
+  'forwarding', 'bbsusers', 'housekeeping', 'mailsettings', 'settings', 'console', 'logs',
 ] as const;
 export type Route = (typeof ROUTES)[number];
 
