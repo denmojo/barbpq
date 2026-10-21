@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
-const css = readFileSync(fileURLToPath(new URL('../base.css', import.meta.url)), 'utf8');
+const css = readFileSync('src/ui/base.css', 'utf8');
 
 test('base.css keeps color-scheme in step with data-theme, after the :root rule', () => {
   const root = css.indexOf(':root { color-scheme: light dark; }');
