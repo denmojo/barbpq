@@ -45,8 +45,9 @@ bad="$(cd overlay/dist && find . -type f ! -name '*.html' ! -name '*.js' ! -name
 if grep -rl '##' overlay/dist >/dev/null; then die "overlay/dist has a file containing ##"; fi
 cmp -s overlay/dist/index.html overlay/dist/indexnoaprs.html || die "index.html and indexnoaprs.html differ"
 for js in overlay/dist/ui/*.js; do
-  top="$(head -c 20000 "$js")"
-  [[ "$top" == '/*!'* ]] || die "$js does not open with the license banner"
+  # The banner is the leading /*! ... */ comment, however long it is.
+  top="$(perl -0777 -ne 'print $1 if m{\A(/\*!.*?\*/)}s' "$js")"
+  [ -n "$top" ] || die "$js does not open with the license banner"
   for holder in 'Jason Miller' 'Preact Team' 'Lucide Icons and Contributors' 'Cole Bemis'; do
     [[ "$top" == *"$holder"* ]] || die "$js banner lacks the notice for $holder"
   done
