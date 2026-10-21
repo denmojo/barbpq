@@ -35,8 +35,8 @@ These steps assume linbpq runs as an ordinary user from `/usr/local/bin/linbpq`,
 1. Copy the bundle to the node and check it:
 
    ```bash
-   scp -r out/release/barbpq-6.0.26.1-3 user@node:~/barbpq/
-   cd ~/barbpq/barbpq-6.0.26.1-3 && sha256sum -c SHA256SUMS
+   scp -r out/release/barbpq-6.0.26.1-4 user@node:~/barbpq/
+   cd ~/barbpq/barbpq-6.0.26.1-4 && sha256sum -c SHA256SUMS
    ```
 
 2. Keep a copy of the current binary. `rollback.sh` restores from it.
@@ -53,7 +53,7 @@ These steps assume linbpq runs as an ordinary user from `/usr/local/bin/linbpq`,
    mkdir -p "$H" && cp -R HTML/. "$H"/
    ```
 
-   A rollback later needs the same `BARBPQ_HTML` if `H` is not `~/HTML`.
+   The record names the directory (`html=`). A rollback later needs the same `BARBPQ_HTML` if `H` is not `~/HTML`, and refuses, changing nothing, when the two differ.
 
 4. Replace the binary and restart linbpq in its tmux session. Run this from a shell of its own (an SSH session), never inside the tmux pane that runs linbpq. Moving into `/usr/local/bin` needs write access to the directory; without it, set `S=sudo` (otherwise `S=`). Giving the staged copy the binary's owner needs sudo when that owner is another user, such as root; set `C=sudo` then (otherwise `C=$S`). Run `sudo -v` first if either is set. The new binary is staged beside the old one and moved over it, so the installed file is never half-written. Each block ends in a gate line; go on only when it prints the line named.
 
@@ -73,12 +73,7 @@ These steps assume linbpq runs as an ordinary user from `/usr/local/bin/linbpq`,
    pgrep -a -x linbpq && echo "STILL RUNNING: stop here" || echo STOPPED
    ```
 
-   On `STILL RUNNING`, stop: remove the staged file and move nothing. On `STOPPED`, `RELEASE.md` 3.4 snapshots the BBS data files before the new build opens them, so a rollback can restore them too; do that here as well. Then:
-
-   ```bash
-   $S mv -f "$T" "$B" && cmp linbpq "$B" && echo "NEW BINARY IN PLACE"
-   ./rollback.sh --start
-   ```
+   On `STILL RUNNING`, stop: remove the staged file and move nothing. On `STOPPED`, stop following this README and continue in `RELEASE.md` 3.4 from the paragraph after its stop gate, in the same shell. From there it snapshots the BBS data files before the new build opens them, so a rollback can restore them too, then moves the new binary into place and starts linbpq with `./rollback.sh --start`. This README does not repeat those commands, so that there is one copy of them to keep right.
 
    `rollback.sh --start` starts linbpq in the `linbpq` tmux session with the recorded working directory and arguments. It creates the session if stopping linbpq closed it (as happens when linbpq is the pane's own command), and uses a new window if the pane is not at a shell prompt.
 
@@ -89,7 +84,7 @@ Once linbpq is back, the new home page answers at the node's web port (for examp
 Run `rollback.sh` on the node from the bundle directory, again from a shell of its own. Its default paths are under the home directory of the user running it (`~/HTML`, `~/linbpq-6.0.26.1.bak`); set the `BARBPQ_*` variables listed by `./rollback.sh --help` for any other layout.
 
 ```bash
-cd ~/barbpq/barbpq-6.0.26.1-3
+cd ~/barbpq/barbpq-6.0.26.1-4
 ./rollback.sh --dry-run   # show what it would do
 ./rollback.sh
 ```
@@ -98,4 +93,4 @@ It removes `index.html` and `indexnoaprs.html` from `~/HTML`. It also removes th
 
 ## License
 
-G8BPQ's code is under the GNU General Public License version 3 or later. Bundled third-party code keeps its own notices. BarBPQ's web UI and `uiapi.c`/`uiapi.h` are also GPL-3.0-or-later. See `LICENSE`.
+G8BPQ's code is under the GNU General Public License version 3 or later. Bundled third-party code keeps its own notices. BarBPQ's web UI and `uiapi.c`/`uiapi.h` are Copyright (C) 2026 Dennis Mojado, also under GPL-3.0-or-later. See `LICENSE`.

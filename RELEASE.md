@@ -102,6 +102,7 @@ pgrep -a -x linbpq                                   # exactly one line
 P=$(pgrep -x linbpq)
 tr '\0' ' ' </proc/$P/cmdline; echo                  # e.g. "/usr/local/bin/linbpq mail"
 readlink /proc/$P/cwd                                # the working directory
+ls "$(readlink /proc/$P/cwd)"                        # the data files 3.4 snapshots (DIRMES.SYS, linmail.cfg, ...)
 curl -s http://127.0.0.1:8088/api/info               # "Version":"6.0.26.1"
 grep -a -c '6\.0\.26\.1' $B                          # 1 or more
 
@@ -127,11 +128,12 @@ cd ~/barbpq/barbpq-6.0.26.1-N
 [ -e ~/linbpq-6.0.26.1.bak ] || cp -p /usr/local/bin/linbpq ~/linbpq-6.0.26.1.bak
 cmp /usr/local/bin/linbpq ~/linbpq-6.0.26.1.bak && echo "backup matches"
 
-# Record, in ~/barbpq/install-state (shared by every bundle): whether ~/HTML and
-# ~/HTML/ui exist yet, and the running node's arguments and working directory.
-# rollback.sh reads it to remove only what the install added, and every start
-# reuses the arguments and directory. A re-run never turns a recorded
-# html_created=1 or ui_created=1 back into 0.
+# Record, in ~/barbpq/install-state (shared by every bundle): the HTML directory
+# it describes (html=), whether ~/HTML and ~/HTML/ui exist yet, and the running
+# node's arguments and working directory. rollback.sh reads it to remove only
+# what the install added, and every start reuses the arguments and directory.
+# A re-run never turns a recorded html_created=1 or ui_created=1 back into 0.
+# Both refuse when BARBPQ_HTML names another directory than html=.
 ./rollback.sh --record-install-state
 cat ~/barbpq/install-state       # args= must match the cmdline read in 3.2, less argv[0]
 
@@ -178,14 +180,22 @@ With the node stopped its data files are at rest. Snapshot them before the new b
 ```bash
 WD=$(grep '^workdir=' ~/barbpq/install-state | cut -d= -f2-); WD=${WD:-$HOME}
 SNAP=~/barbpq/data-before-install.tgz
-F=$(cd "$WD" && ls -d DIRMES.SYS WFBID.SYS WP.SYS WP.cfg BPQBBSUsers.dat BADWORDS.SYS UserList.csv \
-      linmail.cfg bpq32.cfg chatconfig.cfg BPQNODES.dat MHSave.txt 2>/dev/null)
+CORE="DIRMES.SYS WFBID.SYS linmail.cfg bpq32.cfg"
+MORE="WP.SYS WP.cfg BPQBBSUsers.dat BADWORDS.SYS UserList.csv chatconfig.cfg BPQNODES.dat MHSave.txt"
+F=$(cd "$WD" && ls -d $CORE $MORE 2>/dev/null)
 if [ -e "$SNAP" ]; then echo "SNAPSHOT KEPT (from an earlier install)";
-elif tar czf "$SNAP" -C "$WD" $F && tar tzf "$SNAP"; then echo "SNAPSHOT OK";
+elif tar czf "$SNAP" -C "$WD" $F && L=$(tar tzf "$SNAP"); then
+  echo "$L"; MISS=
+  for n in $CORE; do printf '%s\n' "$L" | grep -qxF "$n" || MISS="$MISS $n"; done
+  for n in $MORE; do printf '%s\n' "$L" | grep -qxF "$n" || echo "not in $WD: $n"; done
+  if [ -z "$MISS" ]; then echo "SNAPSHOT OK";
+  else rm -f "$SNAP"; echo "SNAPSHOT INCOMPLETE, missing:$MISS: stop here"; fi
 else rm -f "$SNAP"; echo "SNAPSHOT FAILED: stop here"; fi
 ```
 
-Go on only on `SNAPSHOT OK` or `SNAPSHOT KEPT`. On `SNAPSHOT FAILED` the old binary is still in place: run `./rollback.sh --start` to bring the node back as it was, remove the staged file, and sort out the snapshot before trying again. The snapshot leaves out `Mail/` (message text, which the new build does not rewrite) and the logs.
+The block lists the archived names and checks them against the two lists. Every node with a BBS has the four in `CORE` in its data directory. A `not in` line for a name in `MORE` is expected when the node has no such file (no chat, no bad-words list, no white pages yet); compare those lines with the `ls` from 3.2 and go on.
+
+Go on only on `SNAPSHOT OK` or `SNAPSHOT KEPT`. On `SNAPSHOT INCOMPLETE`, the data sits somewhere other than the recorded working directory (a node started with `-c <dir>`, or a BBS base directory set in the config): the archive has been removed, so run `./rollback.sh --start` to bring the node back as it was, remove the staged file, find the directory that holds the named files, and snapshot from there (set `WD` to it) before trying again. On `SNAPSHOT FAILED` the old binary is still in place: do the same, and sort out the snapshot before trying again. The snapshot leaves out `Mail/` (message text, which the new build does not rewrite) and the logs.
 
 ```bash
 $S mv -f "$T" "$B" && cmp linbpq "$B" && echo "NEW BINARY IN PLACE"
@@ -260,12 +270,24 @@ Go on only on `STOPPED`:
 
 ```bash
 WD=$(grep '^workdir=' ~/barbpq/install-state | cut -d= -f2-); WD=${WD:-$HOME}
-mkdir -p ~/barbpq/data-after-install
-tar tzf ~/barbpq/data-before-install.tgz | while read -r f; do [ -e "$WD/$f" ] && cp -p "$WD/$f" ~/barbpq/data-after-install/; done
-tar xzf ~/barbpq/data-before-install.tgz -C "$WD" && echo "DATA RESTORED"
+A=~/barbpq/data-after-install-$(date +%Y%m%d-%H%M%S)
+pgrep -a -x linbpq && echo "STILL RUNNING: stop here" || {
+  mkdir "$A" \
+  && tar tzf ~/barbpq/data-before-install.tgz | while read -r f; do
+       [ ! -e "$WD/$f" ] || cp -p "$WD/$f" "$A"/ || exit 1; done \
+  && tar xzf ~/barbpq/data-before-install.tgz -C "$WD" \
+  && echo "DATA RESTORED; the new build's files are in $A" \
+  || echo "RESTORE FAILED: stop here"; }
+```
+
+The block checks again that linbpq is stopped before it touches anything. Each run keeps the files the new build wrote in a directory of its own, named for the time it ran, and refuses when that directory already exists, so a second run never overwrites the copies an earlier run kept.
+
+On `DATA RESTORED`, start the node:
+
+```bash
 ./rollback.sh --start
 ```
 
-The files the new build wrote are kept in `~/barbpq/data-after-install/`.
+On `STILL RUNNING`, run the stop block above again. On `RESTORE FAILED`, look at the message above it: a failure before the `tar xzf` line has changed nothing in `$WD`, and `./rollback.sh --start` brings the node back on the data as it was; a failure in `tar xzf` may have restored some files and not others, so copy the saved files back from `$A` (`cp -p "$A"/* "$WD"/`) before starting the node.
 
 Every path `rollback.sh` uses is an environment variable (`./rollback.sh --help`). `scripts/test_rollback.sh` uses them to run it against a throwaway tree with a fake linbpq and a private tmux server.

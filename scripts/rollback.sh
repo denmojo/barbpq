@@ -24,10 +24,12 @@
 # pane is not at a shell prompt (linbpq run as the pane's own command closes
 # the pane, and the session with it, when it exits).
 #
-# --record-install-state writes install-state: whether the HTML directory and
-# its ui/ exist yet, and, read from the running linbpq, its arguments and
-# working directory. A re-run never turns a recorded "created" back into 0,
-# and keeps the recorded arguments when linbpq is not running.
+# --record-install-state writes install-state: which HTML directory it
+# describes, whether that directory and its ui/ exist yet, and, read from the
+# running linbpq, its arguments and working directory. A re-run never turns a
+# recorded "created" back into 0, keeps the recorded arguments when linbpq is
+# not running, and refuses when BARBPQ_HTML names another directory than the
+# record. A rollback refuses the same mismatch before it changes anything.
 #
 # Paths come from these environment variables (defaults in brackets):
 #   BARBPQ_BIN       installed binary          [/usr/local/bin/linbpq]
@@ -136,8 +138,35 @@ node_cwd() {
   fi
 }
 
+# A directory name without trailing slashes, so "~/HTML/" and "~/HTML" compare equal.
+norm_dir() {
+  local d="$1"
+  while [ "$d" != / ] && [ "${d%/}" != "$d" ]; do d="${d%/}"; done
+  echo "$d"
+}
+
+# The record describes one HTML directory; its created flags mean nothing for another.
+check_state_html() {
+  local rec
+  rec="$(state_of html)"
+  if [ -z "$rec" ]; then
+    if [ -f "$STATE" ] && grep -qE '^(html|ui)_created=1' "$STATE"; then
+      echo "rollback: $STATE does not name the HTML directory its created flags describe; nothing changed." >&2
+      echo "rollback: add a line html=<the directory the install copied into> to it, then run this again." >&2
+      return 1
+    fi
+    return 0
+  fi
+  if [ "$(norm_dir "$rec")" != "$(norm_dir "$HTML")" ]; then
+    echo "rollback: $STATE describes $rec, but BARBPQ_HTML is $HTML; nothing changed." >&2
+    echo "rollback: run it again with BARBPQ_HTML=$rec." >&2
+    return 1
+  fi
+}
+
 record_install_state() {
   local h=0 u=0 pid args workdir
+  check_state_html || exit 1
   [ -d "$HTML" ] || h=1
   [ -d "$HTML/ui" ] || u=1
   # A first run's "created" is the truth; a re-run after the copy must not erase it.
@@ -156,11 +185,11 @@ record_install_state() {
   else
     say "linbpq is not running; keeping the recorded arguments and working directory"
   fi
-  { printf 'html_created=%s\nui_created=%s\n' "$h" "$u"
+  { printf 'html=%s\nhtml_created=%s\nui_created=%s\n' "$(norm_dir "$HTML")" "$h" "$u"
     [ -n "$workdir" ] && printf 'workdir=%s\n' "$workdir"
     printf 'args=%s\n' "$args"
   } >"$STATE" || { echo "rollback: cannot write $STATE" >&2; exit 1; }
-  say "recorded in $STATE: html_created=$h ui_created=$u workdir=${workdir:-unknown} args=${args:-none}"
+  say "recorded in $STATE: html=$(norm_dir "$HTML") html_created=$h ui_created=$u workdir=${workdir:-unknown} args=${args:-none}"
   exit 0
 }
 
@@ -249,6 +278,7 @@ if [ "$START_ONLY" = 1 ]; then
   exit 0    # ensure_running runs from the EXIT trap
 fi
 say "binary $BIN, backup $BACKUP, HTML $HTML, state $STATE"
+check_state_html || { FAILED=1; exit 1; }    # ensure_running still runs from the EXIT trap
 
 # Step 1: the UI files.
 for f in index.html indexnoaprs.html; do

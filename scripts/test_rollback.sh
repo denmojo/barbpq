@@ -129,7 +129,7 @@ start_fake() {
 # RB_PROCFS points at a fake /proc (the default has none, so ps is used).
 rb() {
   PATH="$T/shim:$PATH" \
-  BARBPQ_BIN="$T/bin/linbpq" BARBPQ_BACKUP="$T/home/linbpq.bak" BARBPQ_HTML="$T/home/HTML" \
+  BARBPQ_BIN="$T/bin/linbpq" BARBPQ_BACKUP="$T/home/linbpq.bak" BARBPQ_HTML="${RB_HTML:-$T/home/HTML}" \
   BARBPQ_WORKDIR="${RB_WORKDIR-$T/home}" BARBPQ_SESSION=linbpq BARBPQ_PROC="$PROCNAME" BARBPQ_TMUX="$TM" \
   BARBPQ_PROCFS="${RB_PROCFS:-$T/noproc}" \
   BARBPQ_STOP_WAIT="${STOP_WAIT:-10}" "$T/bundle/rollback.sh" "$@" >"$T/out" 2>&1
@@ -163,7 +163,7 @@ interrupt_on() {
 }
 
 echo "# installed state, install created ui/"
-setup; printf 'html_created=0\nui_created=1\n' >"$T/install-state"; start_fake
+setup; printf 'html=%s\nhtml_created=0\nui_created=1\n' "$T/home/HTML" >"$T/install-state"; start_fake
 p0="$(pid)"
 rb --dry-run
 check "dry run exits 0" '[ "$(cat "$T/rc")" = 0 ]'
@@ -200,7 +200,7 @@ check "binary restored" 'cmp -s "$T/home/linbpq.bak" "$T/bin/linbpq"'
 check "running" '[ -n "$(pid)" ]'
 
 echo "# install created HTML/ too and nothing else is in it"
-setup; rm -f "$T/home/HTML/keep.html"; printf 'html_created=1\nui_created=1\n' >"$T/install-state"; start_fake
+setup; rm -f "$T/home/HTML/keep.html"; printf 'html=%s\nhtml_created=1\nui_created=1\n' "$T/home/HTML" >"$T/install-state"; start_fake
 rb
 check "empty HTML dir removed" '[ ! -e "$T/home/HTML" ]'
 check "running" '[ -n "$(pid)" ]'
@@ -218,7 +218,7 @@ rb --record-install-state
 check "existing HTML/ui and no record: both 0" '[ "$(st_line html_created)" = 0 ] && [ "$(st_line ui_created)" = 0 ]'
 
 echo "# linbpq ignores SIGTERM"
-setup; printf 'ui_created=1\n' >"$T/install-state"
+setup; printf 'html=%s\nui_created=1\n' "$T/home/HTML" >"$T/install-state"
 export FAKE_IGNORE_TERM=1; start_fake; p0="$(pid)"
 STOP_WAIT=2 rb
 unset FAKE_IGNORE_TERM
@@ -236,7 +236,7 @@ check "binary left as it is" 'cmp -s "$T/new.orig" "$T/bin/linbpq"'
 check "linbpq started anyway, in a new session" '[ -n "$(pid)" ] && $TM has-session -t linbpq'
 
 echo "# rollback killed (SIGTERM) while waiting for a linbpq that ignores SIGTERM"
-setup; printf 'ui_created=1\n' >"$T/install-state"
+setup; printf 'html=%s\nui_created=1\n' "$T/home/HTML" >"$T/install-state"
 export FAKE_IGNORE_TERM=1; start_fake; p0="$(pid)"
 STOP_WAIT=4 rb & rbpid=$!
 interrupt_on "stopping linbpq"
@@ -248,7 +248,7 @@ check "binary untouched" 'cmp -s "$T/new.orig" "$T/bin/linbpq"'
 check "linbpq running, new pid (the stop was finished, then it was started)" '[ -n "$(pid)" ] && [ "$(pid)" != "$p0" ]'
 
 echo "# rollback killed while linbpq is still closing after SIGTERM"
-setup; printf 'ui_created=1\n' >"$T/install-state"
+setup; printf 'html=%s\nui_created=1\n' "$T/home/HTML" >"$T/install-state"
 export FAKE_TERM_DELAY=3; start_fake; p0="$(pid)"
 STOP_WAIT=10 rb & rbpid=$!
 interrupt_on "stopping linbpq"
@@ -260,7 +260,7 @@ check "waited for the old process to exit" 'grep -q "waiting for linbpq to exit"
 check "linbpq running afterwards, new pid" '[ -n "$(pid)" ] && [ "$(pid)" != "$p0" ]'
 
 echo "# the copy of the backup fails half-written"
-setup; printf 'ui_created=1\n' >"$T/install-state"; start_fake
+setup; printf 'html=%s\nui_created=1\n' "$T/home/HTML" >"$T/install-state"; start_fake
 FAKE_CP=fail rb
 check "exits 1" '[ "$(cat "$T/rc")" = 1 ]'
 check "installed binary untouched" 'cmp -s "$T/new.orig" "$T/bin/linbpq"'
@@ -268,7 +268,7 @@ check "no temp file left" 'no_tmp'
 check "linbpq running" '[ -n "$(pid)" ]'
 
 echo "# rollback interrupted during the copy"
-setup; printf 'ui_created=1\n' >"$T/install-state"; start_fake
+setup; printf 'html=%s\nui_created=1\n' "$T/home/HTML" >"$T/install-state"; start_fake
 FAKE_CP=hang rb & rbpid=$!
 for _ in $(seq 1 40); do [ -s "$T/cp.pid" ] && break; sleep 0.25; done
 pkill -TERM -f "$T/bundle/rollback.sh"; kill -TERM "$(cat "$T/cp.pid")"
@@ -279,7 +279,7 @@ check "no temp file left" 'no_tmp'
 check "linbpq running" '[ -n "$(pid)" ]'
 
 echo "# bin directory not writable: sudo -v first, then sudo for the copy and the move"
-setup; printf 'ui_created=1\n' >"$T/install-state"; start_fake; chmod u-w "$T/bin"
+setup; printf 'html=%s\nui_created=1\n' "$T/home/HTML" >"$T/install-state"; start_fake; chmod u-w "$T/bin"
 rb
 chmod u+w "$T/bin"
 check "exits 0" '[ "$(cat "$T/rc")" = 0 ]'
@@ -337,7 +337,7 @@ check "used a new window" 'grep -q "starting linbpq in a new window" "$T/out" &&
 check "running with the recorded arguments" '[ -n "$(pid)" ] && [ "$(log_line 2)" = mail ]'
 
 echo "# rollback where linbpq is the tmux pane's own process (its exit closes the session)"
-setup; printf 'ui_created=1\nargs=mail\n' >"$T/install-state"; start_fake_as_pane; p0="$(pid)"
+setup; printf 'html=%s\nui_created=1\nargs=mail\n' "$T/home/HTML" >"$T/install-state"; start_fake_as_pane; p0="$(pid)"
 rb
 check "exits 0" '[ "$(cat "$T/rc")" = 0 ]'
 check "binary restored" 'cmp -s "$T/home/linbpq.bak" "$T/bin/linbpq"'
@@ -352,7 +352,7 @@ HOME="$T/home" PATH="$T/shim:$PATH" BARBPQ_BIN="$T/bin/linbpq" BARBPQ_PROC="$PRO
 check "backup and HTML default under \$HOME" 'grep -q "backup $T/home/linbpq-6.0.26.1.bak, HTML $T/home/HTML," "$T/out"'
 
 echo "# rollback interrupted after deciding to stop, before SIGTERM went out"
-setup; printf 'ui_created=1\n' >"$T/install-state"
+setup; printf 'html=%s\nui_created=1\n' "$T/home/HTML" >"$T/install-state"
 export FAKE_TERM_DELAY=1; start_fake; p0="$(pid)"
 FAKE_PKILL=hang STOP_WAIT=4 rb & rbpid=$!
 for _ in $(seq 1 40); do [ -s "$T/pkill.pid" ] && break; sleep 0.25; done
@@ -365,7 +365,7 @@ check "no SIGKILL: linbpq exited on the SIGTERM" '! grep -q SIGKILL "$T/out"'
 check "linbpq running afterwards, new pid" '[ -n "$(pid)" ] && [ "$(pid)" != "$p0" ]'
 
 echo "# bin directory writable, binary owned by root: sudo for the chown only"
-setup; printf 'ui_created=1\n' >"$T/install-state"; start_fake
+setup; printf 'html=%s\nui_created=1\n' "$T/home/HTML" >"$T/install-state"; start_fake
 FAKE_ROOT_BIN=1 rb
 check "exits 0" '[ "$(cat "$T/rc")" = 0 ]'
 check "sudo -v ran first, while linbpq was still running" '[ "$(head -1 "$T/sudo.log")" = "-v running" ]'
@@ -373,6 +373,32 @@ check "the chown used sudo" 'grep -q "^chown 0:0 $T/bin/linbpq.rollback-tmp" "$T
 check "the copy and the move did not" '! grep -q "^cp \|^mv " "$T/sudo.log"'
 check "binary restored" 'cmp -s "$T/home/linbpq.bak" "$T/bin/linbpq"'
 check "running" '[ -n "$(pid)" ]'
+
+echo "# install-state names the HTML directory it describes"
+setup; rm -rf "$T/home/HTML/ui"
+rb --record-install-state
+check "the record names the HTML directory" '[ "$(st_line html)" = "$T/home/HTML" ]'
+RB_HTML="$T/home/HTML/" rb --record-install-state
+check "a re-run naming the same directory with a trailing slash is accepted" '[ "$(cat "$T/rc")" = 0 ] && [ "$(st_line ui_created)" = 1 ]'
+mkdir -p "$T/other"
+RB_HTML="$T/other" rb --record-install-state
+check "a re-run naming another directory is refused" '[ "$(cat "$T/rc")" = 1 ] && grep -q "describes $T/home/HTML" "$T/out"'
+check "the refused re-run leaves the record as it was" '[ "$(st_line html)" = "$T/home/HTML" ] && [ "$(st_line ui_created)" = 1 ]'
+
+setup; printf 'html=%s\nhtml_created=0\nui_created=1\n' "$T/elsewhere/HTML" >"$T/install-state"; start_fake; p0="$(pid)"
+rb
+check "rollback with another BARBPQ_HTML than the record: exits 1" '[ "$(cat "$T/rc")" = 1 ]'
+check "it names both directories" 'grep -q "describes $T/elsewhere/HTML" "$T/out" && grep -q "BARBPQ_HTML is $T/home/HTML" "$T/out"'
+check "it removes no page" '[ -e "$T/home/HTML/index.html" ] && [ -e "$T/home/HTML/ui/index-abc.js" ]'
+check "it leaves the binary" 'cmp -s "$T/new.orig" "$T/bin/linbpq"'
+check "linbpq left running, same pid" '[ "$(pid)" = "$p0" ]'
+RB_HTML="$T/elsewhere/HTML" rb
+check "the same rollback with the recorded BARBPQ_HTML goes ahead" '[ "$(cat "$T/rc")" = 0 ] && cmp -s "$T/home/linbpq.bak" "$T/bin/linbpq"'
+
+setup; printf 'html_created=0\nui_created=1\n' >"$T/install-state"; start_fake; p0="$(pid)"
+rb
+check "a record with created flags and no html= line is refused" '[ "$(cat "$T/rc")" = 1 ] && grep -q "does not name the HTML directory" "$T/out"'
+check "nothing removed, binary left, same pid" '[ -d "$T/home/HTML/ui" ] && cmp -s "$T/new.orig" "$T/bin/linbpq" && [ "$(pid)" = "$p0" ]'
 
 echo
 if [ "$fails" = 0 ]; then echo "rollback tests: all passed"; else
