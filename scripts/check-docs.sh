@@ -15,8 +15,12 @@ patterns=(
   "\\b(his|her|their) (yes|go|own client|account|gateway)"
   "~/bin/"                           # a tool from one person's home directory
   "\\(read [0-9]{4}-[0-9]{2}-[0-9]{2}\\)"   # facts dated to one reading of one node
-  "\\b(adam|Mac only|the Mac)\\b"    # one machine
+  "\\b(Mac only|the Mac)\\b"         # one machine
 )
+# The maintainer by name: the first name of whoever commits here (the License
+# section, which names the copyright holder, is exempt).
+me="$(git config user.name 2>/dev/null | awk '{print $1}')"
+[ -n "$me" ] && patterns+=("\\b$me\\b")
 
 fails=0
 for f in "${files[@]}"; do
