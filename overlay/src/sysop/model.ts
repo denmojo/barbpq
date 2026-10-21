@@ -121,6 +121,18 @@ export class MailJobAbortedError extends Error {
 }
 
 /**
+ * The job's write was sent and the node answered it, then the mail session was lost before the
+ * result could be read back. What the node holds now is not known, so the view needs a reload;
+ * running the action again is not the advice, because the write may already have been made.
+ */
+export class MailWriteUnconfirmedError extends Error {
+  constructor(what: string) {
+    super(`The write for ${what} was sent and the node answered it, but the mail session was dropped before the result could be read back. Reload the view to see what the node holds.`);
+    this.name = 'MailWriteUnconfirmedError';
+  }
+}
+
+/**
  * One exclusive job's view of the mail session: every request goes out on the key the job
  * started with. Before each request the job checks that key is still the one this browser
  * holds; a lost-session reply, or a key that changed under it (another request found the

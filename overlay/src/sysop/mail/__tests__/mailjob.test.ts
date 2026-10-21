@@ -119,6 +119,20 @@ test('after an abort, running the action again starts from the pick on the fresh
   expect(n.calls.filter((c) => c.key === C).map((c) => c.path)).toEqual(['/Mail/MsgDetails', '/Mail/MsgSave']);
 });
 
+// N1: the write had its reply, then the read-back found the session gone.
+test('a delete that was answered, then loses the session on the read-back, says it was sent and answered and the view needs a reload', async () => {
+  const n: ReturnType<typeof node> = node({
+    ...ROUTES,
+    '/Mail/UserSave': () => { n.lost.add(B); return 'deleted'; },
+  }, { keys: [B, C] });
+  const err = await deleteRecord('user', 'RMS').catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(Error);
+  expect((err as Error).message).toMatch(/sent and the node answered/);
+  expect((err as Error).message).toMatch(/[Rr]eload/);
+  expect((err as Error).message).not.toMatch(/nothing more was sent/);
+  expect(wrote(n.calls)).toHaveLength(1);
+});
+
 // N2: a late lost reply on an old key must not clear a newer cached key.
 test('the WP list GET: a late lost reply on an old key leaves the newer key cached', async () => {
   let headers = 0;
