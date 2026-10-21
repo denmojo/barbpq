@@ -62,3 +62,13 @@ test('a node that does not answer also reads Sign-in failed, with the reason', a
   expect(await screen.findByRole('alert')).toHaveTextContent(/Sign-in failed.*answered 404/);
   expect(screen.getByLabelText('Password')).toHaveValue('');
 });
+
+test('a reply that is neither the menu nor the form shows the node\'s own words, not a password hint', async () => {
+  stubFetch({ '/Node/Signon?Node': '<html><body>Too many sessions</body></html>' });
+  render(<SignIn />);
+  fill(USER, PASS);
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('The node gave an unexpected reply to the sign-in: Too many sessions');
+  expect(alert).not.toHaveTextContent('Check the user name');
+  expect(sysop.value).toBe('out');
+});

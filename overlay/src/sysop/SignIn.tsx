@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { signIn } from '../data/session';
+import { signIn, SignInReplyError } from '../data/session';
 import { IconLock } from './icons';
 
 /**
@@ -28,7 +28,8 @@ export function SignIn() {
         passRef.current?.focus();
       }
     } catch (err) {
-      setError({ title: 'Sign-in failed', hint: `The node did not answer: ${err instanceof Error ? err.message : String(err)}` });
+      const hint = err instanceof SignInReplyError ? err.message : `The node did not answer: ${err instanceof Error ? err.message : String(err)}`;
+      setError({ title: 'Sign-in failed', hint });
       setPassword('');
       passRef.current?.focus();
     } finally {

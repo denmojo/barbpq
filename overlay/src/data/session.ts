@@ -35,14 +35,36 @@ export async function getProtected(url: string): Promise<string> {
   return assertAuthorized(await getText(url));
 }
 
+/** The sign-in reply was neither the node menu nor the sign-in form again. */
+export class SignInReplyError extends Error {
+  constructor(readonly pageText: string) {
+    super(`The node gave an unexpected reply to the sign-in: ${pageText || 'an empty page'}`);
+    this.name = 'SignInReplyError';
+  }
+}
+
 export async function signIn(user: string, password: string): Promise<boolean> {
   const body = latin1Bytes(`user=${encodeLatin1Form(user)}&password=${encodeLatin1Form(password)}`);
   const reply = await postBody('/Node/Signon?Node', body);
   // A failed attempt returns the sign-in form again.
-  const ok = !/name=password/i.test(reply);
-  sysop.value = ok ? 'in' : 'out';
-  if (ok) cachedKey = null;
-  return ok;
+  if (/name=password/i.test(reply)) {
+    sysop.value = 'out';
+    return false;
+  }
+  // Success is the whole node menu: its title, through the closing tag.
+  if (!/BPQ32 Web Server<\/title>/i.test(reply) || !/<\/html>\s*$/i.test(reply)) {
+    sysop.value = 'out';
+    throw new SignInReplyError(pageText(reply));
+  }
+  sysop.value = 'in';
+  cachedKey = null;
+  return true;
+}
+
+/** The first words of a page, for an error message. */
+function pageText(html: string): string {
+  const text = new DOMParser().parseFromString(html, 'text/html').body?.textContent ?? '';
+  return text.replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 
 let cachedKey: string | null = null;

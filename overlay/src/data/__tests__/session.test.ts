@@ -30,6 +30,20 @@ test('signIn posts user and password; the menu reply means success, the form aga
   expect(sysop.value).toBe('out');
 });
 
+test('signIn takes only the node menu as success; any other reply is an error naming it', async () => {
+  const menu = fixture('node-signon.html');
+  let reply = '<html><body><p>Server busy, try later</p></body></html>';
+  stubFetch({ '/Node/Signon?Node': () => reply });
+  await expect(signIn('sysop', 'staging')).rejects.toThrow(/Server busy, try later/);
+  expect(sysop.value).toBe('out');
+  reply = menu.slice(0, Math.floor(menu.length / 2));   // a truncated menu
+  await expect(signIn('sysop', 'staging')).rejects.toThrow(/unexpected reply/);
+  expect(sysop.value).toBe('out');
+  reply = menu;
+  expect(await signIn('sysop', 'staging')).toBe(true);
+  expect(sysop.value).toBe('in');
+});
+
 test('mailKey reads the key from /Mail/Header, and a sign-in page is not authorized', async () => {
   stubFetch({ '/Mail/Header': fixture('mail-header.html') });
   expect(await mailKey()).toMatch(/^M[0-9A-F]+$/);
