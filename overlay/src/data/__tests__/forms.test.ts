@@ -1,4 +1,4 @@
-import { parseForm, submitForm, encodeCfgSave, cfgSaveTooLarge, formPairs, saveConfig, CfgTooLargeError } from '../forms';
+import { parseForm, submitForm, encodeCfgSave, cfgSaveTooLarge, formPairs, saveConfig, CfgTooLargeError, extractConfigText, SaveFailedError } from '../forms';
 import { decodeLatin1, encodeLatin1Form, NonLatin1Error, latin1Bytes } from '../http';
 import { sysop } from '../session';
 import { parseMailKey } from '../pages';
@@ -113,7 +113,7 @@ function nodeDecode(body: Uint8Array): Uint8Array {
   return Uint8Array.from(out);
 }
 
-test('every byte 0x00-0xFF (no CR) survives decode, textarea, encodeCfgSave and the node decoder', () => {
+test('every byte 0x01-0xFF (no CR) survives decode, textarea, encodeCfgSave and the node decoder', () => {
   const raw: number[] = [];
   for (let b = 0; b < 256; b++) if (b !== 13 && b !== 0) raw.push(b);
   // NUL is left out: an HTML parser turns it into U+FFFD, and the node's C string would end there.
@@ -158,7 +158,7 @@ test('saveConfig reads the form action then posts the body, retrying after sign-
   let first = true;
   stubFetch({
     '/Node/EditCfg.html': () => (first ? (first = false, '<b>Not authorized - please sign in</b>') : '<form method=post action=CFGSave?N1><textarea name=Msg></textarea></form>'),
-    '/Node/CFGSave?N1': (init) => { posted = init?.body as Uint8Array; return '<html>Configuration Saved</html>'; },
+    '/Node/CFGSave?N1': (init) => { posted = init?.body as Uint8Array; return '<html><script>alert("Configuration Saved, Orig Length 10 New Length 16");window.close();</script></html>'; },
     '/Node/Signon?Node': fixture('node-signon.html'),
   });
   const p = saveConfig('A B\n');
@@ -168,4 +168,27 @@ test('saveConfig reads the form action then posts the body, retrying after sign-
   await p;
   expect(new TextDecoder('latin1').decode(posted)).toBe('Msg=A+B%0A&Save=');
   sysop.value = 'unknown';
+});
+
+test('config text with entities, leading blank line and a literal </textarea> round-trips exactly', () => {
+  const cfg = '\n; a &amp; b &lt;b&gt; &#65; &#x41;\nREM </textarea> still config\nPORT\n';
+  const page = `<html><body><form method=post action=CFGSave?N1\n\n><textarea cols=100 rows=25 name=Msg>${cfg}</textarea><br><input name=Save value=Save type=submit></form></body></html>`;
+  const text = extractConfigText(page);
+  expect(text).toBe(cfg);
+  expect(new TextDecoder('latin1').decode(nodeDecode(encodeCfgSave(text)))).toBe(cfg);
+  expect(() => extractConfigText('<p>none</p>')).toThrow(/config text/);
+});
+
+test('saveConfig throws SaveFailedError when the reply lacks the confirmation', async () => {
+  const page = '<form method=post action=CFGSave?N1><textarea name=Msg></textarea></form>';
+  stubFetch({
+    '/Node/EditCfg.html': page,
+    '/Node/CFGSave?N1': '<html><script>alert("Failed to write Config File");window.close();</script></html>',
+  });
+  const err = await saveConfig('X').catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(SaveFailedError);
+  expect((err as Error).message).toMatch(/Failed to write Config File/);
+  vi.unstubAllGlobals();
+  stubFetch({ '/Node/EditCfg.html': page, '/Node/CFGSave?N1': '<html>whatever</html>' });
+  await expect(saveConfig('X')).rejects.toBeInstanceOf(SaveFailedError);
 });

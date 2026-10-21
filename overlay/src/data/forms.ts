@@ -119,6 +119,30 @@ export function cfgSaveTooLarge(body: Uint8Array): boolean {
   return body.length > CFG_SAVE_LIMIT;
 }
 
+/** The node's confirmation, from SaveConfigFile in HTTPcode.c: alert("Configuration Saved, Orig Length N New Length M"). */
+const SAVE_OK = /alert\("Configuration Saved, Orig Length \d+ New Length \d+"\)/;
+
+/** The node answered a config save without its "Configuration Saved" confirmation. */
+export class SaveFailedError extends Error {
+  constructor(readonly reply: string) {
+    const m = /alert\("([^"]*)"\)/.exec(reply);
+    super(m ? `Config save failed: ${m[1]}` : 'Config save failed: no confirmation from the node');
+    this.name = 'SaveFailedError';
+  }
+}
+
+/**
+ * The raw config text of the Edit Config page. The node writes bpq32.cfg into the textarea
+ * unescaped, so HTML parsing would change it (&amp; decoded, leading newline dropped, a literal
+ * </textarea> truncating). Take the bytes between the opening tag and the LAST </textarea>.
+ */
+export function extractConfigText(html: string): string {
+  const open = /<textarea\b[^>]*>/i.exec(html);
+  const end = html.toLowerCase().lastIndexOf('</textarea>');
+  if (!open || end < open.index + open[0].length) throw new ParseError('Edit Config', 'config text');
+  return html.slice(open.index + open[0].length, end);
+}
+
 /** Config text encodes to more than the node accepts in one request. */
 export class CfgTooLargeError extends Error {
   constructor(readonly bytes: number) {
@@ -137,6 +161,7 @@ export async function saveConfig(text: string): Promise<void> {
   if (cfgSaveTooLarge(body)) throw new CfgTooLargeError(body.length);
   await withSysop(async () => {
     const spec = parseForm(await getProtected('/Node/EditCfg.html'), 0, '/Node/EditCfg.html');
-    assertAuthorized(await postBody(spec.action, body));
+    const reply = assertAuthorized(await postBody(spec.action, body));
+    if (!SAVE_OK.test(reply)) throw new SaveFailedError(reply);
   });
 }
