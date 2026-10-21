@@ -317,6 +317,13 @@ static void test_axip_several_udp_and_raw(void)
 	ax->udpport[0] = ax->udpport[2];
 	ax->udpport[1] = ax->udpport[2];
 	expect(4, "down", "none of 3 AXIP UDP ports bound");
+	/* a TCP map connected beside the unbound UDP ports: still down, and said */
+	ax->arp_table_len = 1;
+	ax->arp_table[0].TCPState = 4;
+	ax->arp_table[0].LastHeard = 0;
+	expect(4, "down", "none of 3 AXIP UDP ports bound; 1 TCP map open");
+	ax->arp_table[0].TCPState = 0;
+	ax->arp_table_len = 0;
 
 	/* the raw IP 93 socket: open is all there is, and the detail says so */
 	ax->NumberofUDPPorts = 0;

@@ -920,10 +920,19 @@ const char *uiapi_axip_link(const struct ui_axip_link *a, time_t now, char *deta
 	*evidence = NULL;
 	if (a->udp_n > 0 && a->udp_bound <= 0)
 	{
+		/* Down covers the UDP side; say what else is open so the reader
+		   does not take it for the whole port */
+		char also[64] = "";
+
+		if (a->tcp_open > 0)
+			snprintf(also, sizeof(also), "; %d TCP map%s open%s", a->tcp_open,
+				a->tcp_open == 1 ? "" : "s", a->raw_open ? ", raw IP socket open" : "");
+		else if (a->raw_open)
+			snprintf(also, sizeof(also), "; raw IP socket open");
 		if (a->udp_n == 1)
-			snprintf(detail, cap, "AXIP UDP %d not bound", a->udp_unbound);
+			snprintf(detail, cap, "AXIP UDP %d not bound%s", a->udp_unbound, also);
 		else
-			snprintf(detail, cap, "none of %d AXIP UDP ports bound", a->udp_n);
+			snprintf(detail, cap, "none of %d AXIP UDP ports bound%s", a->udp_n, also);
 		return "down";
 	}
 	if (a->raw_open + a->udp_bound + a->tcp_open <= 0)

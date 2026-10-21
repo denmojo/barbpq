@@ -666,9 +666,22 @@ static void test_axip_link(void)
 	AL(a, "linked", "socket open, no peers mapped", "socket");
 	a.udp_bound = 0;
 	a.udp_unbound = 10093;
-	a.tcp_open = 1;		/* the one UDP port unbound is down, whatever else is open */
-	AL(a, "down", "AXIP UDP 10093 not bound", NULL);
+	/* the one UDP port unbound is down, whatever else is open; the detail
+	   names what else is open, so Down reads as the UDP side only */
+	a.tcp_open = 1;
+	AL(a, "down", "AXIP UDP 10093 not bound; 1 TCP map open", NULL);
+	a.tcp_open = 2;
+	a.raw_open = 1;
+	AL(a, "down", "AXIP UDP 10093 not bound; 2 TCP maps open, raw IP socket open", NULL);
 	a.tcp_open = 0;
+	AL(a, "down", "AXIP UDP 10093 not bound; raw IP socket open", NULL);
+	a.raw_open = 0;
+	AL(a, "down", "AXIP UDP 10093 not bound", NULL);
+	a.udp_n = 3;		/* several, none bound, a TCP map open */
+	a.tcp_open = 1;
+	AL(a, "down", "none of 3 AXIP UDP ports bound; 1 TCP map open", NULL);
+	a.tcp_open = 0;
+	a.udp_n = 1;
 	passed++;
 }
 
@@ -710,7 +723,7 @@ static void test_axip_link_raw_socket(void)
 	a.udp_bound = 2;
 	AL(a, "linked", "2 of 2 UDP ports bound, 1 of 1 peers heard in the last hour, raw IP socket bind not checked", "socket");
 	a.udp_bound = 0;	/* every UDP port unbound is down even with the raw socket open */
-	AL(a, "down", "none of 2 AXIP UDP ports bound", NULL);
+	AL(a, "down", "none of 2 AXIP UDP ports bound; raw IP socket open", NULL);
 	passed++;
 }
 

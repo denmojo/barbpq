@@ -106,7 +106,8 @@ const char *uiapi_kiss_link(const struct ui_kiss_link *k, char *detail, size_t c
    UDP ports the detail leads with how many are bound; it then counts the MAP
    entries heard within the hour, the node's own AXIP Up test
    (HTTPcode.c:4289), and notes the raw IP socket, whose bind cannot be
-   checked. */
+   checked. A down for unbound UDP names any TCP map or raw socket that is
+   open, since Down then covers the UDP side only. */
 struct ui_axip_link
 {
 	int raw_open;		/* the raw IP 93 socket is open (needip) */
