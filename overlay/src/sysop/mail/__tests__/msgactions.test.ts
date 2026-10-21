@@ -31,7 +31,7 @@ function node(routes: Record<string, Hit>): Call[] {
 const HEADER = fixture('mail-header.html');
 const DETAILS2 = fixture('mail-msgdetails-2.html');
 const SIGNON = '<html><body><form method=post action=/Mail/Signon?Mail>Not signed in</form></body></html>';
-const LOST = fixture('mail-signon.html');
+const LOST = fixture('mail-lost.html');
 const posts = (calls: Call[], path: string) => calls.filter((c) => c.method === 'POST' && c.path === `/Mail/${path}`);
 const held = (): MessageDetail => parseMessageDetail(DETAILS2, 2);
 

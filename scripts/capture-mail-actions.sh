@@ -57,13 +57,14 @@ post FwdList.txt '' | tr '|' '\n' | grep -qx RMS || { echo "RMS is not a partner
 post FwdDetails RMS >/dev/null
 post FWDSave StartForward >"$OUT/mail-fwdsave-startforward-rms.html"
 
-# WP Delete of N0CALL, and the list after it.
+# WP Delete of N0CALL, the only staging record, and the list after it. The reply shows the
+# node reading the freed record (its call box holds garbage); the UI refuses this case.
 post WPDetails N0CALL >/dev/null
 post WPSave Delete >"$OUT/mail-wpsave-delete.html"
 get -b "$JAR" "$BASE/Mail/WPInfo.txt?$KEY" >"$OUT/mail-wpinfo-after-delete.txt"
 
-# A mail post with a key the node does not know: its sign-in reply.
-curl -s -m 20 -X POST --data-binary '2' "$BASE/Mail/MsgDetails?M0000000000000" >"$OUT/mail-signon.html"
+# A mail post with a key the node does not know: its "Session had been lost" reply.
+curl -s -m 20 -X POST --data-binary '2' "$BASE/Mail/MsgDetails?M0000000000000" >"$OUT/mail-lost.html"
 
 # Guard: the test password must not appear in any captured fixture.
 LEAK="$(grep -rlai 'staging' "$OUT" || true)"

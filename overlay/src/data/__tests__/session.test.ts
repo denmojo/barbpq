@@ -94,7 +94,7 @@ test('a mail key the node has dropped ("Session had been lost") gets a fresh key
   let lost = true;
   stubFetch({
     '/Mail/Header': () => { headers += 1; return header; },
-    [`/Mail/Status?${old}`]: () => { if (lost) { lost = false; return fixture('mail-signon.html'); } return 'status page'; },
+    [`/Mail/Status?${old}`]: () => { if (lost) { lost = false; return fixture('mail-lost.html'); } return 'status page'; },
   });
   signOut();
   sysop.value = 'in';
@@ -102,15 +102,15 @@ test('a mail key the node has dropped ("Session had been lost") gets a fresh key
   await expect(run).resolves.toBe('status page');
   expect(headers).toBe(2);
   expect(sysop.value).toBe('in');
-  expect(isNotAuthorized(fixture('mail-signon.html'))).toBe(false);
-  expect(isMailSessionLost(fixture('mail-signon.html'))).toBe(true);
+  expect(isNotAuthorized(fixture('mail-lost.html'))).toBe(false);
+  expect(isMailSessionLost(fixture('mail-lost.html'))).toBe(true);
 });
 
 test('a lost mail session whose cookie is gone too falls through to the sign-in and retry', async () => {
   let signedOut = false;
   stubFetch({
     '/Mail/Header': () => (signedOut ? '<form action=/Mail/Signon?Mail>' : fixture('mail-header.html')),
-    [`/Mail/Status?${parseMailKey(fixture('mail-header.html'))}`]: () => { signedOut = true; return fixture('mail-signon.html'); },
+    [`/Mail/Status?${parseMailKey(fixture('mail-header.html'))}`]: () => { signedOut = true; return fixture('mail-lost.html'); },
   });
   signOut();
   sysop.value = 'in';
