@@ -2,7 +2,16 @@
 
 This file covers building a release bundle, publishing the fork, installing on the gateway, checking it live, and rolling back. Building is safe to run at any time and never contacts a node.
 
-Assumed below:user `<user>` on `<gateway-host>`; linbpq runs from `/usr/local/bin/linbpq` with working directory `/home/<user>`, inside the tmux session `linbpq`, started by hand (no systemd unit, no cron). Its web port is 8088. `/home/<user>/HTML` does not exist yet. Version 6.0.26.1 is installed, and an older backup `~/linbpq-6.0.24.34.bak` exists.
+Assumed below:linbpq runs from `/usr/local/bin/linbpq` with the login user's home directory as its working directory, inside the tmux session `linbpq`, started by hand (no systemd unit, no cron). Its web port is 8088. `~/HTML` does not exist yet. Version 6.0.26.1 is installed, and an older backup `~/linbpq-6.0.24.34.bak` exists.
+
+The gateway's address and login stay out of this repository. Set them in the build host's shell before sections 3 and 4:
+
+```bash
+GW=user@host                 # the gateway's ssh login
+NODE=http://host:8088        # its web port
+```
+
+`scripts/fetch-staging-config.sh` reads the same login from `BARBPQ_GATEWAY` or from the untracked file `scripts/gateway.local`.
 
 Never run `linbpq -v` (or any other `linbpq` invocation) on the gateway to check a version: it starts a second node.
 
@@ -16,7 +25,7 @@ It refuses to run from a tree with uncommitted changes unless `BARBPQ_ALLOW_DIRT
 
 ```
 linbpq        the node binary
-rollback.sh   run on the gateway to undo the install
+rollback.sh   run on the gateway to start linbpq, or to undo the install
 HTML/         index.html, indexnoaprs.html, ui/*.js, ui/*.css
 VERSION       the commit the bundle was built from (with -dirty if forced)
 SHA256SUMS    one line per file above
@@ -50,15 +59,15 @@ git push -u origin ui
 
 ## 3. Install on the gateway
 
-Steps 3.1 and 3.2 change nothing on the gateway.
+Steps 3.1 and 3.2 change nothing on the gateway. Step 3.3 adds files and changes nothing the node uses. Step 3.4 takes the gateway off the air for the length of a restart.
 
 ### 3.1 Copy and verify the bundle
 
 From the build host (`N` is the bundle number):
 
 ```bash
-ssh <user>@<gateway-host> 'mkdir -p ~/barbpq'
-scp -rp out/release/barbpq-6.0.26.1-N <user>@<gateway-host>:~/barbpq/
+ssh "$GW" 'mkdir -p ~/barbpq'
+scp -rp out/release/barbpq-6.0.26.1-N "$GW":~/barbpq/
 ```
 
 On the gateway:
@@ -74,22 +83,42 @@ Run everything from here on in an SSH shell of its own, never inside the tmux pa
 
 ### 3.2 Checks before changing anything
 
+Run 3.2 to 3.4 in the same shell: 3.4 uses the `S` and `C` set here.
+
 ```bash
+B=/usr/local/bin/linbpq
+
 # Can this user write /usr/local/bin? The new binary is moved into place with mv,
 # which needs write access to the directory. Sets S for 3.4.
-if test -w /usr/local/bin; then S=; echo "no sudo needed"; else S=sudo; echo "sudo needed"; fi
+if test -w /usr/local/bin; then S=; echo "no sudo needed for the move"; else S=sudo; echo "sudo needed for the move"; fi
+# Does this user own the binary? Giving the staged copy another user's ownership
+# needs sudo even in a writable directory. Sets C for 3.4.
+if [ "$(stat -c %u $B)" = "$(id -u)" ]; then C=$S; else C=sudo; fi
+echo "binary owner $(stat -c %U $B); chown ${C:-without sudo}"
 sudo -n true 2>/dev/null && echo "sudo works without a password" || echo "sudo will prompt (or is not allowed)"
 
-# The running node and its version, without starting a second one
-pgrep -a -x linbpq
-curl -s http://127.0.0.1:8088/api/info      # "Version":"6.0.26.1"
-grep -a -c '6\.0\.26\.1' /usr/local/bin/linbpq   # 1 or more
+# The running node, its arguments, working directory and version, without starting a second one
+pgrep -a -x linbpq                                   # exactly one line
+P=$(pgrep -x linbpq)
+tr '\0' ' ' </proc/$P/cmdline; echo                  # e.g. "/usr/local/bin/linbpq mail"
+readlink /proc/$P/cwd                                # the working directory
+curl -s http://127.0.0.1:8088/api/info               # "Version":"6.0.26.1"
+grep -a -c '6\.0\.26\.1' $B                          # 1 or more
 
-# What the tmux pane is doing
+# How it sits in tmux. A parent that is the tmux server, and a pane whose
+# command is linbpq, mean linbpq is the pane's own process: stopping it closes
+# the pane, and the session too if that was its only window. rollback.sh --start
+# (3.4) handles that; this records what to expect.
+ps -o pid=,ppid=,args= -p $P
+ps -o pid=,args= -p $(ps -o ppid= -p $P)
+tmux list-panes -s -t linbpq -F '#{window_index}.#{pane_index} #{pane_current_command} pid #{pane_pid}'
 tmux capture-pane -p -t linbpq | tail -5
+
+# Is the BBS loaded? Note the answer; 4 checks it again after the restart.
+curl -s http://127.0.0.1:8088/Node/NodeMenu.html | grep -c 'Mail Mgmt'   # 1: the BBS is loaded
 ```
 
-### 3.3 Back up the binary and install the UI
+### 3.3 Back up the binary, record the node, install the UI
 
 ```bash
 cd ~/barbpq/barbpq-6.0.26.1-N
@@ -98,69 +127,105 @@ cd ~/barbpq/barbpq-6.0.26.1-N
 [ -e ~/linbpq-6.0.26.1.bak ] || cp -p /usr/local/bin/linbpq ~/linbpq-6.0.26.1.bak
 cmp /usr/local/bin/linbpq ~/linbpq-6.0.26.1.bak && echo "backup matches"
 
-# Record what exists now in ~/barbpq/install-state, shared by every bundle.
-# rollback.sh reads it to remove only what the install added. A re-run never
-# turns a recorded html_created=1 or ui_created=1 back into 0.
+# Record, in ~/barbpq/install-state (shared by every bundle): whether ~/HTML and
+# ~/HTML/ui exist yet, and the running node's arguments and working directory.
+# rollback.sh reads it to remove only what the install added, and every start
+# reuses the arguments and directory. A re-run never turns a recorded
+# html_created=1 or ui_created=1 back into 0.
 ./rollback.sh --record-install-state
+cat ~/barbpq/install-state       # args= must match the cmdline read in 3.2, less argv[0]
 
-mkdir -p /home/<user>/HTML
-cp -R HTML/. /home/<user>/HTML/
-ls -la /home/<user>/HTML /home/<user>/HTML/ui
+mkdir -p ~/HTML
+cp -R HTML/. ~/HTML/
+ls -la ~/HTML ~/HTML/ui
 ```
 
 ### 3.4 Replace the binary and restart
 
-The new binary is staged next to the old one and moved over it with `mv -f`, so `/usr/local/bin/linbpq` is never half-written. Staging happens while linbpq still runs; only the move waits for the stop. SIGTERM makes linbpq close its links and exit.
+The new binary is staged next to the old one and moved over it with `mv -f`, so `/usr/local/bin/linbpq` is never half-written. Staging happens while linbpq still runs; only the move waits for the stop. SIGTERM makes linbpq close its links and exit. Each block ends in a gate line; go on only when it prints the line named.
 
 ```bash
 cd ~/barbpq/barbpq-6.0.26.1-N
-[ -n "$S" ] && sudo -v                       # ask for the password now, before anything stops
+B=/usr/local/bin/linbpq; T=$B.install-tmp
+[ -n "$S$C" ] && sudo -v                     # ask for the password now, before anything stops
 
 # Stage and check the copy, with the old file's mode and owner.
-$S cp linbpq /usr/local/bin/linbpq.install-tmp
-cmp linbpq /usr/local/bin/linbpq.install-tmp && echo "staged copy matches"
-$S chmod --reference=/usr/local/bin/linbpq /usr/local/bin/linbpq.install-tmp
-$S chown --reference=/usr/local/bin/linbpq /usr/local/bin/linbpq.install-tmp
+$S rm -f "$T" \
+  && $S cp linbpq "$T" \
+  && cmp linbpq "$T" \
+  && $S chmod --reference="$B" "$T" \
+  && $C chown --reference="$B" "$T" \
+  && echo "STAGED OK" \
+  || { echo "STAGING FAILED: stop here"; $S rm -f "$T"; }
+```
 
+Go on only on `STAGED OK`. On `STAGING FAILED` linbpq is still running and nothing has changed; the staged file is already removed.
+
+```bash
 # Stop gate: SIGTERM, wait, SIGKILL, check again.
 pkill -TERM -x linbpq
 for i in $(seq 1 30); do pgrep -x linbpq >/dev/null || break; sleep 1; done
 if pgrep -x linbpq >/dev/null; then
   pkill -KILL -x linbpq; sleep 3
 fi
-pgrep -a -x linbpq && echo "STILL RUNNING: stop here" || echo stopped
+pgrep -a -x linbpq && echo "STILL RUNNING: stop here" || echo STOPPED
 ```
 
-If that last line prints `STILL RUNNING`, stop the procedure: remove the staged file (`$S rm -f /usr/local/bin/linbpq.install-tmp`) and do not move anything. Otherwise:
+Go on only on `STOPPED`. On `STILL RUNNING`, remove the staged file (`$S rm -f "$T"`) and move nothing.
+
+With the node stopped its data files are at rest. Snapshot them before the new build first opens them, so a rollback can bring back what the old build wrote (see 5.2). Never overwrite an existing snapshot: a second install would replace it with files the new build has written.
 
 ```bash
-$S mv -f /usr/local/bin/linbpq.install-tmp /usr/local/bin/linbpq
-cmp linbpq /usr/local/bin/linbpq && echo "new binary in place"
-
-tmux send-keys -t linbpq 'cd /home/<user> && /usr/local/bin/linbpq' Enter
-sleep 5; pgrep -a -x linbpq
+WD=$(grep '^workdir=' ~/barbpq/install-state | cut -d= -f2-); WD=${WD:-$HOME}
+SNAP=~/barbpq/data-before-install.tgz
+F=$(cd "$WD" && ls -d DIRMES.SYS WFBID.SYS WP.SYS WP.cfg BPQBBSUsers.dat BADWORDS.SYS UserList.csv \
+      linmail.cfg bpq32.cfg chatconfig.cfg BPQNODES.dat MHSave.txt 2>/dev/null)
+if [ -e "$SNAP" ]; then echo "SNAPSHOT KEPT (from an earlier install)";
+elif tar czf "$SNAP" -C "$WD" $F && tar tzf "$SNAP"; then echo "SNAPSHOT OK";
+else rm -f "$SNAP"; echo "SNAPSHOT FAILED: stop here"; fi
 ```
 
-If the tmux pane is not at a shell prompt, attach with `tmux attach -t linbpq` and start it by hand. Should the binary fail to start, run `./rollback.sh` from the bundle directory right away (see section 5).
+Go on only on `SNAPSHOT OK` or `SNAPSHOT KEPT`. On `SNAPSHOT FAILED` the old binary is still in place: run `./rollback.sh --start` to bring the node back as it was, remove the staged file, and sort out the snapshot before trying again. The snapshot leaves out `Mail/` (message text, which the new build does not rewrite) and the logs.
+
+```bash
+$S mv -f "$T" "$B" && cmp linbpq "$B" && echo "NEW BINARY IN PLACE"
+
+# Start linbpq in its tmux session with the recorded working directory and
+# arguments. It creates the session if stopping linbpq closed it, and uses a
+# new window if the pane is not at a shell prompt.
+./rollback.sh --start
+tr '\0' ' ' </proc/$(pgrep -x linbpq)/cmdline; echo   # the same arguments as in 3.2
+```
+
+`rollback.sh --start` prints the pid and command line of the node it started, and exits 1 if linbpq is not running 15 seconds later. Should the new binary fail to start, run `./rollback.sh` from the bundle directory right away (see section 5).
 
 ## 4. Live checks
 
+From the build host:
+
 ```bash
-curl -s http://<gateway-host>:8088/api/ui/station         # JSON answer
-curl -s http://<gateway-host>:8088/ | head -5             # the new home page (index.html)
-curl -s -o /dev/null -w '%{http_code}\n' http://<gateway-host>:8088/Node/NodeIndex.html
-curl -s -o /dev/null -w '%{http_code}\n' http://<gateway-host>:8088/Mail/Header
+curl -s "$NODE/api/ui/station"                              # JSON answer
+curl -s "$NODE/" | head -5                                  # the new home page (index.html)
+curl -s -o /dev/null -w '%{http_code}\n' "$NODE/Node/NodeIndex.html"
+curl -s -o /dev/null -w '%{http_code}\n' "$NODE/Mail/Header"
+curl -s "$NODE/Node/NodeMenu.html" | grep -c 'Mail Mgmt'    # 1: the BBS is loaded
+curl -s -o /dev/null -w '%{http_code}\n' "$NODE/api/ui/events"   # 401: sysop only
 ```
 
 Expected:
 
 - `/api/ui/station` and the new home page answer on port 8088.
+- The node menu still offers Mail Mgmt, as it did in 3.2. The node adds that link only when the BBS was loaded at start, by the `mail` argument or by the config.
+- Signed in on the new UI, Health shows the BBS card reading Running, with the BBS call and its user count.
 - On a Winlink RMS gateway, a session from a Winlink client reaches the CMS as it did before.
 - The old `/Node/` and `/Mail/` pages still answer.
+- `/api/ui/events` refuses a caller without a sysop session.
 
 Any failure here is a reason to roll back.
 
 ## 5. Roll back
+
+### 5.1 The binary and the UI
 
 On the gateway, from the bundle directory, in an SSH shell of its own (not the linbpq tmux pane):
 
@@ -172,10 +237,35 @@ cd ~/barbpq/barbpq-6.0.26.1-N
 
 In order, it:
 
-1. Removes `/home/<user>/HTML/index.html` and `indexnoaprs.html`. It removes `/home/<user>/HTML/ui/` only when `~/barbpq/install-state` says the install created it; otherwise only the `ui/` files this bundle shipped. If the install created `/home/<user>/HTML` and it is now empty, that goes too. Nothing else in `HTML/` is touched.
-2. If `/usr/local/bin/linbpq` differs from `~/linbpq-6.0.26.1.bak`, copies the backup to `/usr/local/bin/linbpq.rollback-tmp` and checks it with `cmp` while linbpq still runs. Then it stops linbpq (SIGTERM, then SIGKILL after 30 s) and moves the copy over the binary with `mv -f`. When `/usr/local/bin` is not writable it runs `sudo -v` before anything else, then uses sudo for the copy and the move. A failed or interrupted copy leaves `/usr/local/bin/linbpq` untouched and the temp file removed.
-3. On every exit, failure or interruption included, it first finishes a stop already begun (waiting for the old process to exit, with SIGKILL as the last step), then starts linbpq in the tmux session `linbpq` if it is not running (creating the session if it is gone), and reports the pid.
+1. Removes `~/HTML/index.html` and `indexnoaprs.html`. It removes `~/HTML/ui/` only when `~/barbpq/install-state` says the install created it; otherwise only the `ui/` files this bundle shipped. If the install created `~/HTML` and it is now empty, that goes too. Nothing else in `HTML/` is touched.
+2. If `/usr/local/bin/linbpq` differs from `~/linbpq-6.0.26.1.bak`, copies the backup to `/usr/local/bin/linbpq.rollback-tmp` and checks it with `cmp` while linbpq still runs, giving it the installed file's mode and owner. Then it stops linbpq (SIGTERM, then SIGKILL after 30 s) and moves the copy over the binary with `mv -f`. When `/usr/local/bin` is not writable it uses sudo for the copy and the move; when the binary belongs to another user it uses sudo for the chown; either way it runs `sudo -v` before anything stops. A failed or interrupted copy leaves `/usr/local/bin/linbpq` untouched and the temp file removed.
+3. On every exit, failure or interruption included, it first finishes a stop already begun (sending the SIGTERM if an interruption came before it went out, waiting for the old process to exit, with SIGKILL as the last step), then starts linbpq as `rollback.sh --start` does: in the tmux session `linbpq`, with the recorded working directory and arguments, creating the session if it is gone. It reports the pid.
 
 It prints each action and exits 1 if any step failed. Running it again is harmless: each step checks first. The backup is kept.
 
-Every path is an environment variable (`./rollback.sh --help`). `scripts/test_rollback.sh` uses them to run it against a throwaway tree with a fake linbpq and a private tmux server.
+A browser that loaded the new UI may keep `index.html` in its cache for a while after the rollback and show a blank page. Reload with Ctrl+Shift+R (Cmd+Shift+R on a Mac) to get the old node menu.
+
+### 5.2 The data files, only if the old build cannot read them
+
+The rollback restores the binary only. If the old build then misreads the BBS data the new build wrote (messages or users missing or garbled, the BBS failing to start), put back the snapshot from 3.4. This discards every message, user and setting change since the install.
+
+```bash
+cd ~/barbpq/barbpq-6.0.26.1-N
+pkill -TERM -x linbpq
+for i in $(seq 1 30); do pgrep -x linbpq >/dev/null || break; sleep 1; done
+pgrep -a -x linbpq && echo "STILL RUNNING: stop here" || echo STOPPED
+```
+
+Go on only on `STOPPED`:
+
+```bash
+WD=$(grep '^workdir=' ~/barbpq/install-state | cut -d= -f2-); WD=${WD:-$HOME}
+mkdir -p ~/barbpq/data-after-install
+tar tzf ~/barbpq/data-before-install.tgz | while read -r f; do [ -e "$WD/$f" ] && cp -p "$WD/$f" ~/barbpq/data-after-install/; done
+tar xzf ~/barbpq/data-before-install.tgz -C "$WD" && echo "DATA RESTORED"
+./rollback.sh --start
+```
+
+The files the new build wrote are kept in `~/barbpq/data-after-install/`.
+
+Every path `rollback.sh` uses is an environment variable (`./rollback.sh --help`). `scripts/test_rollback.sh` uses them to run it against a throwaway tree with a fake linbpq and a private tmux server.

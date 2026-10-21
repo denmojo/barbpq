@@ -5,7 +5,7 @@ BarBPQ is a fork of [LinBPQ](https://github.com/g8bpq/linbpq), John Wiseman G8BP
 It adds two things:
 
 - A static web UI (in `overlay/`) that the node serves from its `HTML/` directory. Its public pages show the station, ports, links and routes, sessions and the heard list. For the SysOp it covers sign-in, node settings, mail settings, BBS users, forwarding, messages, a console and the log viewer.
-- A small read-only JSON API under `/api/ui/` (in `uiapi.c`) that the UI reads: station summary, links, CMS state, counters, the heard list and recent events.
+- A small read-only JSON API under `/api/ui/` (in `uiapi.c`) that the UI reads: station summary, links, CMS state, counters and the heard list, plus recent events for a signed-in sysop.
 
 Upstream's own pages under `/Node/` and `/Mail/` stay in place and keep working.
 
@@ -26,7 +26,7 @@ Building the web UI needs Node.js:
 cd overlay && npm ci && npm test && npm run build   # writes overlay/dist/
 ```
 
-`scripts/release.sh` runs all of the tests, builds both, and assembles a bundle in `out/release/barbpq-<version>-<n>/` holding `linbpq`, `HTML/`, `rollback.sh` and `SHA256SUMS`. It never contacts a node.
+`scripts/release.sh` runs all of the tests, builds both, and assembles a bundle in `out/release/barbpq-<version>-<n>/` holding `linbpq`, `HTML/`, `rollback.sh`, `VERSION` and `SHA256SUMS`. It never contacts a node.
 
 ## Installing
 
@@ -35,8 +35,8 @@ These steps assume linbpq runs as an ordinary user from `/usr/local/bin/linbpq`,
 1. Copy the bundle to the node and check it:
 
    ```bash
-   scp -r out/release/barbpq-6.0.26.1-1 user@node:~/barbpq/
-   cd ~/barbpq/barbpq-6.0.26.1-1 && sha256sum -c SHA256SUMS
+   scp -r out/release/barbpq-6.0.26.1-3 user@node:~/barbpq/
+   cd ~/barbpq/barbpq-6.0.26.1-3 && sha256sum -c SHA256SUMS
    ```
 
 2. Keep a copy of the current binary. `rollback.sh` restores from it.
@@ -45,47 +45,56 @@ These steps assume linbpq runs as an ordinary user from `/usr/local/bin/linbpq`,
    [ -e ~/linbpq-6.0.26.1.bak ] || cp -p /usr/local/bin/linbpq ~/linbpq-6.0.26.1.bak
    ```
 
-3. Record whether the UI directories already exist, in `~/barbpq/install-state`. A rollback reads this record and removes only what the install added, and a re-run never erases a recorded "created". Then copy the UI in:
+3. With linbpq running, record in `~/barbpq/install-state` whether the UI directories already exist, and the running node's arguments and working directory. A rollback reads this record and removes only what the install added, a re-run never erases a recorded "created", and every start through `rollback.sh` reuses the arguments and directory. Name the HTML directory you copy into, so the record describes that one. Then copy the UI in:
 
    ```bash
-   ./rollback.sh --record-install-state
-   mkdir -p ~/HTML && cp -R HTML/. ~/HTML/
+   H=~/HTML
+   BARBPQ_HTML=$H ./rollback.sh --record-install-state
+   mkdir -p "$H" && cp -R HTML/. "$H"/
    ```
 
-4. Replace the binary and restart linbpq in its tmux session. Run this from a shell of its own (an SSH session), never inside the tmux pane that runs linbpq. Moving into `/usr/local/bin` needs write access to the directory; without it, set `S=sudo` (otherwise `S=`) and run `sudo -v` first. The new binary is staged beside the old one and moved over it, so the installed file is never half-written.
+   A rollback later needs the same `BARBPQ_HTML` if `H` is not `~/HTML`.
+
+4. Replace the binary and restart linbpq in its tmux session. Run this from a shell of its own (an SSH session), never inside the tmux pane that runs linbpq. Moving into `/usr/local/bin` needs write access to the directory; without it, set `S=sudo` (otherwise `S=`). Giving the staged copy the binary's owner needs sudo when that owner is another user, such as root; set `C=sudo` then (otherwise `C=$S`). Run `sudo -v` first if either is set. The new binary is staged beside the old one and moved over it, so the installed file is never half-written. Each block ends in a gate line; go on only when it prints the line named.
 
    ```bash
-   $S cp linbpq /usr/local/bin/linbpq.install-tmp
-   cmp linbpq /usr/local/bin/linbpq.install-tmp && echo "staged copy matches"
-   $S chmod --reference=/usr/local/bin/linbpq /usr/local/bin/linbpq.install-tmp
-   $S chown --reference=/usr/local/bin/linbpq /usr/local/bin/linbpq.install-tmp
+   B=/usr/local/bin/linbpq; T=$B.install-tmp
+   $S rm -f "$T" && $S cp linbpq "$T" && cmp linbpq "$T" \
+     && $S chmod --reference="$B" "$T" && $C chown --reference="$B" "$T" \
+     && echo "STAGED OK" || { echo "STAGING FAILED: stop here"; $S rm -f "$T"; }
+   ```
 
+   Go on only on `STAGED OK`; on `STAGING FAILED` nothing has changed and linbpq is still running.
+
+   ```bash
    pkill -TERM -x linbpq
    for i in $(seq 1 30); do pgrep -x linbpq >/dev/null || break; sleep 1; done
    if pgrep -x linbpq >/dev/null; then pkill -KILL -x linbpq; sleep 3; fi
-   pgrep -a -x linbpq && echo "STILL RUNNING: stop here" || echo stopped
+   pgrep -a -x linbpq && echo "STILL RUNNING: stop here" || echo STOPPED
    ```
 
-   On `STILL RUNNING`, stop: remove the staged file and move nothing. Otherwise:
+   On `STILL RUNNING`, stop: remove the staged file and move nothing. On `STOPPED`, `RELEASE.md` 3.4 snapshots the BBS data files before the new build opens them, so a rollback can restore them too; do that here as well. Then:
 
    ```bash
-   $S mv -f /usr/local/bin/linbpq.install-tmp /usr/local/bin/linbpq
-   tmux send-keys -t linbpq 'cd ~ && /usr/local/bin/linbpq' Enter
+   $S mv -f "$T" "$B" && cmp linbpq "$B" && echo "NEW BINARY IN PLACE"
+   ./rollback.sh --start
    ```
 
-Once linbpq is back, the new home page answers at the node's web port (for example `http://node:8088/`).
+   `rollback.sh --start` starts linbpq in the `linbpq` tmux session with the recorded working directory and arguments. It creates the session if stopping linbpq closed it (as happens when linbpq is the pane's own command), and uses a new window if the pane is not at a shell prompt.
+
+Once linbpq is back, the new home page answers at the node's web port (for example `http://node:8088/`). Check that the BBS came back too: `curl -s http://node:8088/Node/NodeMenu.html | grep -c 'Mail Mgmt'` prints 1 when it is loaded.
 
 ## Rolling back
 
-Run `rollback.sh` on the node from the bundle directory, again from a shell of its own. Its default paths are those of the node it was written for (user `<user>`); set the `BARBPQ_*` variables listed by `./rollback.sh --help` for any other layout.
+Run `rollback.sh` on the node from the bundle directory, again from a shell of its own. Its default paths are under the home directory of the user running it (`~/HTML`, `~/linbpq-6.0.26.1.bak`); set the `BARBPQ_*` variables listed by `./rollback.sh --help` for any other layout.
 
 ```bash
-cd ~/barbpq/barbpq-6.0.26.1-1
+cd ~/barbpq/barbpq-6.0.26.1-3
 ./rollback.sh --dry-run   # show what it would do
 ./rollback.sh
 ```
 
-It removes `index.html` and `indexnoaprs.html` from `~/HTML`. It also removes the `ui/` directory when the install created it. Then it stages the backup beside the binary, stops linbpq, moves the backup into place, and starts linbpq again in the `linbpq` tmux session. Running it a second time is safe. It always tries to leave linbpq running, even when a step fails or it is interrupted.
+It removes `index.html` and `indexnoaprs.html` from `~/HTML`. It also removes the `ui/` directory when the install created it. Then it stages the backup beside the binary, stops linbpq, moves the backup into place, and starts linbpq again as `--start` does. Running it a second time is safe. It always tries to leave linbpq running, even when a step fails or it is interrupted. It restores the binary only; `RELEASE.md` 5.2 restores the data snapshot if the old build cannot read what the new one wrote. A browser that loaded the new UI may need a hard reload (Ctrl+Shift+R) to show the old menu.
 
 ## License
 
