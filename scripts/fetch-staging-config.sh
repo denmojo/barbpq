@@ -6,7 +6,14 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-GATEWAY=<user>@<gateway-host>
+# The gateway's ssh login (user@host) comes from BARBPQ_GATEWAY, else from the
+# first line of scripts/gateway.local (untracked; see .gitignore), e.g.:
+#   echo 'user@host' >scripts/gateway.local
+GATEWAY="${BARBPQ_GATEWAY:-}"
+if [ -z "$GATEWAY" ] && [ -f scripts/gateway.local ]; then
+  GATEWAY="$(head -1 scripts/gateway.local | tr -d '[:space:]')"
+fi
+[ -n "$GATEWAY" ] || { echo "set BARBPQ_GATEWAY=user@host, or put user@host in scripts/gateway.local" >&2; exit 1; }
 mkdir -p staging
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT

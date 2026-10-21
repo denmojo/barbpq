@@ -6,6 +6,8 @@
 .vs/*
 # web UI overlay build output
 staging/
+# the gateway login for scripts/fetch-staging-config.sh (user@host), kept out of git
+scripts/gateway.local
 out/
 overlay/node_modules/
 overlay/dist/
