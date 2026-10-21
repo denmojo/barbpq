@@ -6,7 +6,7 @@ interface CardProps {
   title: string;
   /** Right-aligned link in the heading, to another screen of this UI. */
   more?: { href: string; label: string };
-  span?: 4 | 6 | 8 | 12;
+  span?: 4 | 5 | 6 | 7 | 8 | 12;
   class?: string;
   children: ComponentChildren;
 }

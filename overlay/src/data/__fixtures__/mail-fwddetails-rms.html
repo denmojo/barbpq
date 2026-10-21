@@ -1,0 +1,34 @@
+<!-- Version 3 11/11/2019 -->
+<h3 align="center">Forwarding Config for RMS - 0 Messages Queued</h3><form style="font-family: monospace; text-align: center" method=post action=/Mail/FWD?M000002209840>
+&nbsp;&nbsp;TO &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;AT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;TIMES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; Connect Script<br>
+<textarea wrap=hard rows=8 cols=10 name=TO>RMS
+</textarea> 
+<textarea wrap=hard rows=8 cols=10 name=AT></textarea> 
+<textarea wrap=hard rows=8 cols=10 name=Times></textarea> 
+<textarea wrap=hard rows=8 cols=20 name=FWD>ATTACH 1
+NOFALLBACK
+C CMS
+ELSE
+C 2 W6SAR-10
+</textarea><br>
+Hierarchical Routes (Flood Bulls) HR (Personals and Directed Bulls)
+<textarea wrap=hard rows=8 cols=30 name=HRB></textarea> 
+<textarea wrap=hard rows=8 cols=30 name=HRP></textarea>
+<br><br>
+BBS HA <input value="" size=50 name=BBSHA> <br>
+Enable Forwarding&nbsp;<input checked=checked name=EnF type=checkbox> Interval <input value=1800 size=3 name=Interval>(Secs)<br>
+Request Reverse&nbsp;&nbsp;&nbsp;<input name=EnR type=checkbox> Interval <input value=0 size=3 name=RInterval>(Secs)<br>
+Send new messages without waiting for poll timer<input checked=checked name=NoWait type=checkbox><br>
+FBB Blocked <input checked=checked name=Blocked type=checkbox>Max Block <input value=10000 size=3 name=FBBBlock> 
+Send Personal Mail Only <input name=Personal type=checkbox><br>
+Allow Binary <input checked=checked name=Bin type=checkbox> Use B1 Protocol <input name=B1 type=checkbox>&nbsp; Use B2 Protocol<input checked=checked name=B2 type=checkbox><br>
+Send ctrl/Z instead of /ex in text mode forwarding <input name=CTRLZ type=checkbox><br>
+Incoming Connect Timeout <input value=120 size=3 name=ConTimeOut>(Secs)<br>
+<br>
+<input onclick=copyf(this.form) value="Copy from BBS" type=button class='btn'>
+<input value="" size=3 name=CopyCall> 
+<input onclick=save(this.form) value=Update type=button class='btn'>
+<input onclick=startf(this.form) value="Start Forwarding" type=button class='btn'>
+</form>
+</body></html>

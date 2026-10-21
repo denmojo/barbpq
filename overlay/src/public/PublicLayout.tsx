@@ -10,7 +10,9 @@ import { Ports } from './Ports';
 import { Heard } from './Heard';
 import { LinksRoutes } from './LinksRoutes';
 import { Sessions } from './Sessions';
-import { SignInPending } from './SignInPending';
+import { sysop } from '../data/session';
+import { Skel } from '../ui/Skel';
+import { SignIn } from '../sysop/SignIn';
 import './public.css';
 
 export const PUBLIC_NAME = 'BarBPQ - LinBPQ Web UI';
@@ -18,6 +20,11 @@ export const PUBLIC_NAME = 'BarBPQ - LinBPQ Web UI';
 const SCREENS: Partial<Record<Route, FunctionComponent>> = {
   overview: Overview, ports: Ports, heard: Heard, links: LinksRoutes, sessions: Sessions,
 };
+
+/** While the app asks the node whether this browser is still signed in. */
+function CheckingSignIn() {
+  return <div class="signin" aria-busy="true"><div class="card signin-card"><Skel /></div></div>;
+}
 
 /** The page a visitor sees before signing in: header, then the screen for the current route. */
 export function PublicLayout() {
@@ -31,7 +38,7 @@ export function PublicLayout() {
   }, [info.data]);
 
   const r = route.value;
-  const Screen = SCREENS[r] ?? SignInPending;
+  const Screen = SCREENS[r] ?? (sysop.value === 'unknown' ? CheckingSignIn : SignIn);
   return (
     <div class="pub">
       <Header info={info} current={r} />

@@ -47,6 +47,31 @@ export async function signIn(user: string, password: string): Promise<boolean> {
 
 let cachedKey: string | null = null;
 
+/**
+ * Find out whether this browser still holds a sysop session: the mail menu answers with
+ * its session key only to a signed-in node cookie. Sets `sysop` to 'in' or 'out'.
+ */
+export async function checkSysop(): Promise<SysopState> {
+  try {
+    await mailKey();
+    sysop.value = 'in';
+  } catch (e) {
+    if (!(e instanceof NotAuthorizedError)) throw e;
+    sysop.value = 'out';
+  }
+  return sysop.peek();
+}
+
+/**
+ * The node has no sign-out URL. Drop this browser's session cookie and the cached mail key;
+ * the node forgets the session itself when it times out.
+ */
+export function signOut(): void {
+  document.cookie = 'BPQSessionCookie=; Path=/; Max-Age=0';
+  cachedKey = null;
+  sysop.value = 'out';
+}
+
 /** Mail management key. A request with the node cookie creates the mail session. */
 export async function mailKey(): Promise<string> {
   if (cachedKey) return cachedKey;
