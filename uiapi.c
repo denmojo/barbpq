@@ -401,126 +401,59 @@ static void iso_time(time_t t, char out[21])
 	strftime(out, 21, "%Y-%m-%dT%H:%M:%SZ", &tm);
 }
 
-/* ---- JSON validation, for event details written to and read back from disk ---- */
-
-static const char *jv_value(const char *p, int depth);
-
-static const char *jv_ws(const char *p)
-{
-	while (*p == ' ' || *p == '\t')
-		p++;
-	return p;
-}
+/* ---- Event details: flat JSON objects {"k":"str"|true|false|null,...} ---- */
 
 static const char *jv_string(const char *p)
 {
-	int i;
-
 	if (*p++ != '"')
 		return NULL;
-	while (*p != '"')
+	for (; *p != '"'; p++)
 	{
-		unsigned char c = (unsigned char)*p;
-
-		if (c < 0x20 || c >= 0x7f)
+		if ((unsigned char)*p < 0x20 || (unsigned char)*p >= 0x7f)
 			return NULL;		/* we only ever write printable ASCII */
-		if (c == '\\')
+		if (*p != '\\')
+			continue;
+		if (*++p == 'u')
 		{
-			p++;
-			if (*p == 'u')
-			{
-				for (i = 1; i <= 4; i++)
-					if (!isxdigit((unsigned char)p[i]))
-						return NULL;
-				p += 4;
-			}
-			else if (*p == 0 || strchr("\"\\/bfnrt", *p) == NULL)
+			if (!isxdigit((unsigned char)p[1]) || !isxdigit((unsigned char)p[2])
+				|| !isxdigit((unsigned char)p[3]) || !isxdigit((unsigned char)p[4]))
 				return NULL;
+			p += 4;
 		}
-		p++;
+		else if (*p == 0 || strchr("\"\\/bfnrt", *p) == NULL)
+			return NULL;
 	}
 	return p + 1;
 }
 
-static const char *jv_number(const char *p)
-{
-	if (*p == '-')
-		p++;
-	if (!isdigit((unsigned char)*p))
-		return NULL;
-	while (isdigit((unsigned char)*p))
-		p++;
-	if (*p == '.')
-	{
-		if (!isdigit((unsigned char)*++p))
-			return NULL;
-		while (isdigit((unsigned char)*p))
-			p++;
-	}
-	if (*p == 'e' || *p == 'E')
-	{
-		p++;
-		if (*p == '+' || *p == '-')
-			p++;
-		if (!isdigit((unsigned char)*p))
-			return NULL;
-		while (isdigit((unsigned char)*p))
-			p++;
-	}
-	return p;
-}
-
-/* object or array: open/close brackets, members are "key":value or value */
-static const char *jv_list(const char *p, int depth, char close, int keyed)
-{
-	p = jv_ws(p + 1);
-	if (*p == close)
-		return p + 1;
-	for (;;)
-	{
-		if (keyed)
-		{
-			if ((p = jv_string(p)) == NULL)
-				return NULL;
-			p = jv_ws(p);
-			if (*p++ != ':')
-				return NULL;
-		}
-		if ((p = jv_value(jv_ws(p), depth + 1)) == NULL)
-			return NULL;
-		p = jv_ws(p);
-		if (*p == close)
-			return p + 1;
-		if (*p++ != ',')
-			return NULL;
-		p = jv_ws(p);
-	}
-}
-
-static const char *jv_value(const char *p, int depth)
-{
-	if (depth > 4)
-		return NULL;
-	switch (*p)
-	{
-	case '{': return jv_list(p, depth, '}', 1);
-	case '[': return jv_list(p, depth, ']', 0);
-	case '"': return jv_string(p);
-	case 't': return strncmp(p, "true", 4) ? NULL : p + 4;
-	case 'f': return strncmp(p, "false", 5) ? NULL : p + 5;
-	case 'n': return strncmp(p, "null", 4) ? NULL : p + 4;
-	default: return jv_number(p);
-	}
-}
-
-/* 1 if s is exactly one JSON object */
+/* 1 if s is exactly one flat object of string, bool or null values, no spaces */
 static int detail_ok(const char *s)
 {
-	const char *p = jv_ws(s);
+	const char *p = s;
 
-	if (*p != '{' || (p = jv_value(p, 0)) == NULL)
+	if (*p++ != '{')
 		return 0;
-	return *jv_ws(p) == 0;
+	if (*p == '}')
+		return p[1] == 0;
+	for (;;)
+	{
+		if ((p = jv_string(p)) == NULL || *p++ != ':')
+			return 0;
+		if (*p == '"')
+			p = jv_string(p);
+		else if (strncmp(p, "true", 4) == 0 || strncmp(p, "null", 4) == 0)
+			p += 4;
+		else if (strncmp(p, "false", 5) == 0)
+			p += 5;
+		else
+			return 0;
+		if (p == NULL)
+			return 0;
+		if (*p == '}')
+			return p[1] == 0;
+		if (*p++ != ',')
+			return 0;
+	}
 }
 
 /* ---- Event log: last UI_EV_MAX in memory, all appended to uiapi-events.log ---- */
@@ -644,6 +577,7 @@ static void ev_init(const char *dir)
 	struct ui_event e;
 	off_t size = 0, start = 0;
 	size_t got = 0, n;
+	int torn = 0;
 
 	pthread_mutex_lock(&ev_lock);
 	snprintf(ev_path, sizeof(ev_path), "%s/uiapi-events.log", dir);
@@ -663,6 +597,7 @@ static void ev_init(const char *dir)
 	{
 		/* the first line read is partial */
 		nl = memchr(p, '\n', got);
+		torn = nl == NULL;	/* no line end in the whole window */
 		got = nl ? got - (size_t)(nl + 1 - p) : 0;
 		p = nl ? nl + 1 : p;
 	}
@@ -680,7 +615,7 @@ static void ev_init(const char *dir)
 		got -= n;
 	}
 	free(buf);
-	if (size > UI_EV_COMPACT || got > 0)	/* got > 0: a torn last line */
+	if (size > UI_EV_COMPACT || got > 0 || torn)	/* got > 0: a torn last line */
 		ev_rewrite();
 	pthread_mutex_unlock(&ev_lock);
 }
@@ -707,9 +642,8 @@ void uiapi_event_at(const char *kind, const char *detail_json, time_t now)
 		fd = open(ev_path, O_WRONLY | O_APPEND | O_CREAT, 0644);
 		if (fd >= 0)
 		{
-			ssize_t w = write(fd, line, n);	/* a short write leaves the in-memory copy */
-
-			(void)w;
+			if (write(fd, line, n) != n)
+				n = (int)write(fd, "\n", 1);	/* end a torn line so the next starts clean */
 			close(fd);
 		}
 	}
@@ -719,6 +653,35 @@ void uiapi_event_at(const char *kind, const char *detail_json, time_t now)
 void uiapi_event(const char *kind, const char *detail_json)
 {
 	uiapi_event_at(kind, detail_json, time(NULL));
+}
+
+int uiapi_events_json(char *buf, size_t cap, int limit)
+{
+	struct jbuf b = { buf, 0, cap - 2, 0 };
+	int i;
+
+	buf[0] = 0;
+	jb_printf(&b, "[");
+	pthread_mutex_lock(&ev_lock);
+	for (i = 0; i < ev_count && i < limit; i++)
+	{
+		const struct ui_event *e = &events[(ev_next - 1 - i + UI_EV_MAX) % UI_EV_MAX];
+		size_t mark = b.len;
+
+		jb_printf(&b, "%s{\"t\":\"%s\",\"kind\":\"%s\",\"detail\":%s}", i ? "," : "", e->t, e->kind, e->detail);
+		if (b.over)
+		{
+			/* the element that does not fit is dropped and the list ends */
+			b.len = mark;
+			buf[mark] = 0;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&ev_lock);
+	b.cap = cap;
+	b.over = 0;
+	jb_printf(&b, "]");
+	return (int)b.len;
 }
 
 void uiapi_cms_result(int ok)
@@ -757,12 +720,12 @@ void uiapi_forward_event(const char *bbs, const char *script)
 		snprintf(route, sizeof(route), "%.12s", bbs ? bbs : "");
 
 	pthread_mutex_lock(&ev_lock);
-	ok = cms_ok == 1;
+	ok = cms_ok;
 	pthread_mutex_unlock(&ev_lock);
 
 	jb_printf(&b, "{\"route\":");
 	jb_str(&b, route, sizeof(route));
-	jb_printf(&b, ",\"cmsReachable\":%s}", ok ? "true" : "false");
+	jb_printf(&b, ",\"cmsReachable\":%s}", ok < 0 ? "null" : ok ? "true" : "false");
 	uiapi_event("forward", b.over ? "{}" : detail);
 }
 
@@ -922,30 +885,14 @@ static NPASYINFO port_kiss(struct PORTCONTROL **P)
 static void port_addr(struct PORTCONTROL *P, struct jbuf *b)
 {
 	struct TNCINFO *TNC = port_tnc(P);
-	char ip[INET_ADDRSTRLEN], a[300];
+	char ip[INET_ADDRSTRLEN], a[300] = "";
 
-	a[0] = 0;
-	if (P->PORTTYPE == 0)
-	{
-		if (P->KISSTCP && P->KISSSLAVE)
-			snprintf(a, sizeof(a), "listen:%d", P->IOBASE);
-		else if (P->PORTIPADDR.s_addr && inet_ntop(AF_INET, &P->PORTIPADDR, ip, sizeof(ip)))
-		{
-			if (P->KISSTCP)
-				snprintf(a, sizeof(a), "%s:%d", ip, P->IOBASE);
-			else
-				snprintf(a, sizeof(a), "%s", ip);
-		}
-		else if (P->SerialPortName)
-			snprintf(a, sizeof(a), "%.255s", P->SerialPortName);
-	}
+	if (P->PORTTYPE == 0 && P->KISSTCP && inet_ntop(AF_INET, &P->PORTIPADDR, ip, sizeof(ip)))
+		snprintf(a, sizeof(a), "%s:%d", ip, P->IOBASE);
+	else if (P->PORTTYPE == 0 && P->SerialPortName)
+		snprintf(a, sizeof(a), "%.255s", P->SerialPortName);
 	else if (TNC && TNC->Hardware != H_TELNET && TNC->HostName)
-	{
-		if (TNC->destaddr.sin_port)
-			snprintf(a, sizeof(a), "%.255s:%d", TNC->HostName, ntohs(TNC->destaddr.sin_port));
-		else
-			snprintf(a, sizeof(a), "%.255s", TNC->HostName);
-	}
+		snprintf(a, sizeof(a), "%.255s:%d", TNC->HostName, ntohs(TNC->destaddr.sin_port));
 	if (a[0])
 		jb_str(b, a, sizeof(a));
 	else
@@ -960,14 +907,6 @@ int uiapi_api_station(char *response, char *token, char *param, int Local)
 	const struct WL2KInfo *W;
 	int telnet = 0, n;
 
-	for (P = PORTTABLE, n = 0; P && n < MAXBPQPORTS; P = P->PORTPOINTER, n++)
-	{
-		struct TNCINFO *TNC = port_tnc(P);
-
-		if (TNC && TNC->Hardware == H_TELNET && TNC->TCPInfo && !telnet)
-			telnet = TNC->TCPInfo->TCPPort;
-	}
-
 	jb_open(&b, response);
 	trimmed((char *)MYNODECALL, 10, call);
 	jb_printf(&b, "{\"call\":");
@@ -978,16 +917,19 @@ int uiapi_api_station(char *response, char *token, char *param, int Local)
 	jb_str(&b, LOCATOR, 80);
 	jb_printf(&b, ",\"version\":");
 	jb_str(&b, TextVerstring, 50);
-	jb_printf(&b, ",\"uptimeSec\":%lld", TimeLoaded ? (long long)(time(NULL) - TimeLoaded) : 0LL);
-	if (telnet)
-		jb_printf(&b, ",\"telnetPort\":%d,\"ports\":[", telnet);
+	if (TimeLoaded)
+		jb_printf(&b, ",\"uptimeSec\":%lld", (long long)(time(NULL) - TimeLoaded));
 	else
-		jb_printf(&b, ",\"telnetPort\":null,\"ports\":[");
+		jb_printf(&b, ",\"uptimeSec\":null");
+	jb_printf(&b, ",\"ports\":[");
 
 	for (P = PORTTABLE, n = 0; P && n < MAXBPQPORTS && !b.over; P = P->PORTPOINTER, n++)
 	{
 		size_t mark = b.len;
+		struct TNCINFO *TNC = port_tnc(P);
 
+		if (TNC && TNC->Hardware == H_TELNET && TNC->TCPInfo && !telnet)
+			telnet = TNC->TCPInfo->TCPPort;
 		trimmed(P->PORTDESCRIPTION, 30, id);
 		jb_printf(&b, "%s{\"number\":%d,\"id\":", n ? "," : "", P->PORTNUMBER);
 		jb_str(&b, id, sizeof(id));
@@ -1015,43 +957,29 @@ int uiapi_api_station(char *response, char *token, char *param, int Local)
 		if (!jb_elem_fits(&b, mark))
 			break;
 	}
-	return jb_close(&b, "]}\r\n");
+	b.cap = UI_RESP_MAX;	/* the room kept back covers this and the close */
+	if (telnet)
+		jb_printf(&b, "],\"telnetPort\":%d", telnet);
+	else
+		jb_printf(&b, "],\"telnetPort\":null");
+	return jb_close(&b, "}\r\n");
 }
 
 static const char *link_state(struct PORTCONTROL *P, char *detail, size_t cap)
 {
 	struct TNCINFO *TNC = port_tnc(P);
+	struct PORTCONTROL *F = P;
+	NPASYINFO K = P->PORTTYPE == 0 ? port_kiss(&F) : NULL;
 
-	if (P->PortStopped)
-	{
-		snprintf(detail, cap, "port stopped");
-		return "down";
-	}
 	if (TNC && TNC->Hardware == H_VARA)
 	{
 		snprintf(detail, cap, TNC->CONNECTED ? "connected to VARA modem" : "VARA modem not connected");
 		return TNC->CONNECTED ? "linked" : "down";
 	}
-	if (P->PORTTYPE == 0)
+	if (K && F->KISSTCP && !F->KISSSLAVE)
 	{
-		struct PORTCONTROL *F = P;
-		NPASYINFO K = port_kiss(&F);
-
-		if (K && F->KISSTCP && !F->KISSSLAVE)
-		{
-			snprintf(detail, cap, K->Connected ? "KISS TCP connected" : "KISS TCP not connected");
-			return K->Connected ? "linked" : "down";
-		}
-		if (K && F->KISSTCP)
-		{
-			snprintf(detail, cap, K->slaveSessions ? "KISS TCP client connected" : "listening, no KISS client");
-			return K->slaveSessions ? "linked" : "down";
-		}
-		if (K && !F->PORTIPADDR.s_addr)
-		{
-			snprintf(detail, cap, K->idComDev ? "serial port open" : "serial port closed");
-			return K->idComDev ? "linked" : "down";
-		}
+		snprintf(detail, cap, K->Connected ? "KISS TCP connected" : "KISS TCP not connected");
+		return K->Connected ? "linked" : "down";
 	}
 	snprintf(detail, cap, "driver reports no link state");
 	return "unknown";
@@ -1163,39 +1091,23 @@ int uiapi_api_mheard(char *response, char *token, char *param, int Local)
 /* limit=N anywhere in the query string, default 20, 1..200 */
 static int events_limit(const char *param)
 {
+	char q[128];
 	const char *p;
 	int n;
 
-	for (p = param; *p && *p != ' ' && *p != '\r' && *p != '\n'; p++)
-		if ((p == param || p[-1] == '?' || p[-1] == '&') && strncmp(p, "limit=", 6) == 0)
-		{
-			if (!isdigit((unsigned char)p[6]))
-				return 20;
-			n = atoi(p + 6);
-			return n < 1 ? 1 : n > UI_EV_MAX ? UI_EV_MAX : n;
-		}
-	return 20;
+	snprintf(q, sizeof(q), "%.*s", (int)strcspn(param, " \r\n"), param);
+	if ((p = strstr(q, "limit=")) == NULL || !isdigit((unsigned char)p[6]))
+		return 20;
+	n = atoi(p + 6);
+	return n < 1 ? 1 : n > UI_EV_MAX ? UI_EV_MAX : n;
 }
 
 int uiapi_api_events(char *response, char *token, char *param, int Local)
 {
-	struct jbuf b;
-	int i, limit = events_limit(param);
+	int n = uiapi_events_json(response, UI_RESP_MAX - 2, events_limit(param));
 
-	jb_open(&b, response);
-	jb_printf(&b, "[");
-	pthread_mutex_lock(&ev_lock);
-	for (i = 0; i < ev_count && i < limit; i++)
-	{
-		const struct ui_event *e = &events[(ev_next - 1 - i + UI_EV_MAX) % UI_EV_MAX];
-		size_t mark = b.len;
-
-		jb_printf(&b, "%s{\"t\":\"%s\",\"kind\":\"%s\",\"detail\":%s}", i ? "," : "", e->t, e->kind, e->detail);
-		if (!jb_elem_fits(&b, mark))
-			break;
-	}
-	pthread_mutex_unlock(&ev_lock);
-	return jb_close(&b, "]\r\n");
+	strcpy(response + n, "\r\n");
+	return n + 2;
 }
 
 #endif /* UIAPI_TEST */

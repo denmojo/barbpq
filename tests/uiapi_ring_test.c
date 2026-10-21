@@ -324,6 +324,110 @@ static void test_shutdown_saves(void)
 	passed++;
 }
 
+/* ---- event log ---- */
+
+static char evlog[192], evjson[8192];
+
+static int count_of(const char *hay, const char *needle)
+{
+	int n = 0;
+
+	while ((hay = strstr(hay, needle)) != NULL)
+		n++, hay++;
+	return n;
+}
+
+static void ev_reset(void)
+{
+	snprintf(evlog, sizeof evlog, "%s/uiapi-events.log", dir);
+	unlink(evlog);
+	uiapi_init_at(dir, T0);
+}
+
+static void ev_append(const char *data)
+{
+	FILE *f = fopen(evlog, "ab");
+	assert(f);
+	fputs(data, f);
+	fclose(f);
+}
+
+static void test_event_round_trip(void)
+{
+	ev_reset();
+	uiapi_event_at("cfgsave", "{\"ok\":true}", T0);
+	uiapi_event_at("forward", "{\"route\":\"N0\\\"X\\\\ \\u00e9\",\"cmsReachable\":null}", T0 + 1);
+	uiapi_init_at(dir, T0 + 10);		/* reload from disk */
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\"") == 2);
+	assert(strstr(evjson, "[{\"t\":\"") == evjson);
+	assert(strstr(evjson, "\"kind\":\"forward\",\"detail\":{\"route\":\"N0\\\"X\\\\ \\u00e9\",\"cmsReachable\":null}},{"));
+	assert(strstr(evjson, "\"kind\":\"cfgsave\",\"detail\":{\"ok\":true}}]"));
+	uiapi_events_json(evjson, sizeof evjson, 1);
+	assert(count_of(evjson, "\"kind\"") == 1);
+	passed++;
+}
+
+static void test_event_corrupt_line_skipped(void)
+{
+	ev_reset();
+	uiapi_event_at("restart", "{}", T0);
+	ev_append("not json\n{\"t\":\"2026-01-01T00:00:00Z\",\"kind\":\"cfgsave\",\"detail\":{\"ok\":tru}}\n");
+	ev_append("{\"t\":\"2026-01-01T00:00:01Z\",\"kind\":\"mailsave\",\"detail\":{\"what\":\"users\"}}\n");
+	ev_append("{\"t\":\"2026-01-01T00:00:02Z\",\"kind\":\"cfgsave\",\"detail\":{\"ok\"");	/* torn */
+	uiapi_init_at(dir, T0 + 10);
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\"") == 2);
+	assert(strstr(evjson, "mailsave") && !strstr(evjson, "tru}"));
+	/* the torn tail made the loader rewrite the file, so appends start clean */
+	uiapi_event_at("cfgsave", "{\"ok\":false}", T0 + 20);
+	uiapi_init_at(dir, T0 + 30);
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\"") == 3);
+	passed++;
+}
+
+static void test_event_oversize_line_skipped(void)
+{
+	char big[3000];
+
+	ev_reset();
+	snprintf(big, sizeof big, "{\"t\":\"2026-01-01T00:00:00Z\",\"kind\":\"cfgsave\",\"detail\":{\"a\":\"%02000d\"}}\n", 0);
+	ev_append(big);
+	ev_append("{\"t\":\"2026-01-01T00:00:01Z\",\"kind\":\"restart\",\"detail\":{}}\n");
+	uiapi_init_at(dir, T0 + 10);
+	uiapi_events_json(evjson, sizeof evjson, 20);
+	assert(count_of(evjson, "\"kind\"") == 1 && strstr(evjson, "restart"));
+	/* a valid but oversize detail passed in is logged as {} */
+	snprintf(big, sizeof big, "{\"a\":\"%0400d\"}", 0);
+	uiapi_event_at("cfgsave", big, T0 + 20);
+	uiapi_events_json(evjson, sizeof evjson, 1);
+	assert(strstr(evjson, "\"detail\":{}}]"));
+	passed++;
+}
+
+static void test_event_flat_validator(void)
+{
+	static const char *bad[] = { "{\"a\":{\"b\":true}}", "{\"a\":[1]}", "{\"n\":01}", "{\"a\":1}",
+		"{\"a\": true}", "{\"a\":\"x\\q\"}", "{\"a\":\"\\u00zz\"}", "{\"a\":true", "[]", "{\"a\":true}x" };
+	size_t i;
+
+	ev_reset();
+	for (i = 0; i < sizeof bad / sizeof bad[0]; i++)
+	{
+		uiapi_event_at("cfgsave", bad[i], T0);
+		uiapi_events_json(evjson, sizeof evjson, 1);
+		assert(strstr(evjson, "\"detail\":{}}]"));
+	}
+	uiapi_event_at("cfgsave", "{\"a\":\"x\",\"b\":false,\"c\":null}", T0);
+	uiapi_events_json(evjson, sizeof evjson, 1);
+	assert(strstr(evjson, "\"detail\":{\"a\":\"x\",\"b\":false,\"c\":null}}]"));
+	uiapi_event_at("Bad", "{}", T0);		/* bad kind: not logged */
+	uiapi_events_json(evjson, sizeof evjson, 1);
+	assert(!strstr(evjson, "Bad"));
+	passed++;
+}
+
 int main(void)
 {
 	snprintf(dir, sizeof dir, "/tmp/uiapi-ring-test-%d", (int)getpid());
@@ -341,8 +445,15 @@ int main(void)
 	test_since_survives_reload();
 	test_clock_jump_back_stays_loadable();
 	test_shutdown_saves();
+	test_event_round_trip();
+	test_event_corrupt_line_skipped();
+	test_event_oversize_line_skipped();
+	test_event_flat_validator();
 
+	unlink(evlog);
+	snprintf(path, sizeof path, "%s/uiapi-counters.dat", dir);
+	unlink(path);
 	rmdir(dir);
-	printf("uiapi ring: %d passed\n", passed);
+	printf("uiapi ring and events: %d passed\n", passed);
 	return 0;
 }

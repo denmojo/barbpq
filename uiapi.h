@@ -3,6 +3,7 @@
 #ifndef UIAPI_H
 #define UIAPI_H
 
+#include <stddef.h>
 #include <time.h>
 
 enum ui_counter { UI_SESSIONS, UI_MESSAGES, UI_FRAMES, UI_NCOUNTERS };
@@ -36,11 +37,16 @@ void uiapi_shutdown(void);
 /* Call about once a second; saves the ring each time a 5 minute bucket closes */
 void uiapi_tick(time_t now);
 
-/* Event log. kind is lower-case letters; detail_json one JSON object of
-   printable ASCII under 384 bytes (anything else is logged as {}). Kept in
+/* Event log. kind is lower-case letters; detail_json a flat JSON object
+   {"k":"str"|true|false|null,...} of printable ASCII, no spaces, under 384
+   bytes (anything else is logged as {}). Kept in
    memory (last 200) and appended to uiapi-events.log; any thread. */
 void uiapi_event(const char *kind, const char *detail_json);
 void uiapi_event_at(const char *kind, const char *detail_json, time_t now);
+
+/* The newest limit events, newest first, as a JSON array in buf (cap >= 8
+   bytes); an event that does not fit ends the list. Returns the length. */
+int uiapi_events_json(char *buf, size_t cap, int limit);
 
 /* A "forward" event for a connect to partner BBS bbs. Only a port number is
    taken from the first connect script line, never any other word of it. */
