@@ -15,14 +15,15 @@ export interface Station {
   alias: string;
   locator: string;
   version: string;
-  uptimeSec: number;
-  telnetPort: number;
+  /** null when the node does not know its start time */
+  uptimeSec: number | null;
+  telnetPort: number | null;
   ports: StationPort[];
 }
 export interface LinkState { number: number; state: 'linked' | 'down' | 'unknown'; detail: string }
 export interface CmsState { lastAttempt: string | null; lastSuccess: string | null; ok: boolean | null }
-export interface Counts { windowStart: string; full: boolean; sessions: number; messages: number; frames: number }
-export interface Heard { call: string; packets: number; lastHeard: string; via: string[] }
+export interface Counts { windowStart: string | null; full: boolean; sessions: number; messages: number; frames: number }
+export interface Heard { call: string; packets: number; lastHeard: string | null; via: string[] }
 export interface UiEvent {
   t: string;
   kind: 'restart' | 'cfgsave' | 'mailsave' | 'forward';
