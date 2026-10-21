@@ -178,13 +178,24 @@ test('Messages loads one detail at a time with a progress line, and never polls;
   await waitFor(() => expect(details(calls)).toHaveLength(8));
 });
 
-test('a MsgDetails reply that is not the message makes every count Unknown with the reason', async () => {
+test('a message deleted while reading (empty MsgDetails) is skipped and noted; the counts cover the rest', async () => {
   node({ [`/Mail/MsgDetails?${KEY}`]: (b) => (b === '2' ? '' : msgByBody(b)) });
+  open('messages');
+  const list = await screen.findByRole('table', { name: 'Messages' });
+  expect(within(list).getAllByRole('row').slice(1)).toHaveLength(3);
+  const tiles = screen.getByRole('region', { name: 'Message counts' });
+  expect(within(tiles).getByText('Held').nextElementSibling).toHaveTextContent('0');
+  expect(within(tiles).getByText('Sent').nextElementSibling).toHaveTextContent('0');
+  expect(screen.getByText('1 message changed while reading')).toBeInTheDocument();
+});
+
+test('a MsgDetails request that fails makes every count Unknown with the reason', async () => {
+  node({ [`/Mail/MsgDetails?${KEY}`]: (b) => (b === '2' ? Promise.reject(new Error('reset')) : msgByBody(b)) });
   open('messages');
   const tiles = await screen.findByRole('region', { name: 'Message counts' });
   await waitFor(() => expect(within(tiles).getByText('Held').nextElementSibling).toHaveTextContent('Unknown'));
   expect(within(tiles).getByText('Sent').nextElementSibling).toHaveTextContent('Unknown');
-  expect(tiles.querySelector('.unknown')?.getAttribute('title')).toMatch(/message 2/i);
+  expect(tiles.querySelector('.unknown')?.getAttribute('title')).toMatch(/reset/);
 });
 
 // ---------- Forwarding ----------

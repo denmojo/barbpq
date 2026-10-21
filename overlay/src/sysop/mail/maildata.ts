@@ -190,14 +190,22 @@ export function parseMsgDetails(html: string, n: number): MailMessage {
  * the reads run one at a time inside exclusive(). That is one request per message, so the
  * screen reads only when opened and on Refresh.
  */
-export function fetchMessages(onProgress?: (done: number, total: number) => void): Promise<MailMessage[]> {
+export interface MessageRead { msgs: MailMessage[]; /** Messages gone between MsgInfo.txt and their MsgDetails. */ changed: number }
+
+/** A message killed and removed after MsgInfo.txt listed it: the node answers MsgDetails with no record. */
+const gone = (html: string, n: number): boolean => !new RegExp(`<h4>Message ${n}</h4>`).test(html);
+
+export function fetchMessages(onProgress?: (done: number, total: number, changed: number) => void): Promise<MessageRead> {
   return withSysop(() => exclusive(async () => {
     const numbers = parseMsgNumbers(await postMail('MsgInfo.txt', '||||'));
-    const out: MailMessage[] = [];
-    for (const n of numbers) {
-      onProgress?.(out.length, numbers.length);
-      out.push(parseMsgDetails(await postMail('MsgDetails', String(n)), n));
+    const msgs: MailMessage[] = [];
+    let changed = 0;
+    for (const [i, n] of numbers.entries()) {
+      onProgress?.(i, numbers.length, changed);
+      const html = await postMail('MsgDetails', String(n));
+      if (gone(html, n)) changed += 1;
+      else msgs.push(parseMsgDetails(html, n));
     }
-    return out;
+    return { msgs, changed };
   }));
 }

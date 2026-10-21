@@ -12,6 +12,8 @@ import { formatClock } from '../../ui/format';
 import { Footer } from '../../public/Footer';
 import { IconMessages } from '../icons';
 import { fetchMessages, type MailMessage } from './maildata';
+
+const changedNote = (n: number): string | null => (n ? `${n} ${n === 1 ? 'message' : 'messages'} changed while reading` : null);
 import './mail.css';
 
 /** Status letters as the node stores them (MsgInfo.status; the Status select on MsgDetails). */
@@ -29,8 +31,8 @@ export function messageCounts(msgs: MailMessage[]): { held: number; sent: number
 }
 
 type Load =
-  | { phase: 'loading'; done: number; total: number | null }
-  | { phase: 'done'; msgs: MailMessage[]; at: Date }
+  | { phase: 'loading'; done: number; total: number | null; changed: number }
+  | { phase: 'done'; msgs: MailMessage[]; changed: number; at: Date }
   | { phase: 'error'; error: Error };
 
 function Tile({ k, title, children }: { k: string; title: string; children: ComponentChildren }) {
@@ -53,14 +55,14 @@ function Row({ m }: { m: MailMessage }) {
 }
 
 export function Messages() {
-  const [load, setLoad] = useState<Load>({ phase: 'loading', done: 0, total: null });
+  const [load, setLoad] = useState<Load>({ phase: 'loading', done: 0, total: null, changed: 0 });
   const [tries, setTries] = useState(0);
   // One request per message on the node: read when the screen opens and on Refresh, never on a timer.
   useEffect(() => {
     let alive = true;
-    setLoad({ phase: 'loading', done: 0, total: null });
-    fetchMessages((done, total) => { if (alive) setLoad({ phase: 'loading', done, total }); }).then(
-      (msgs) => { if (alive) setLoad({ phase: 'done', msgs, at: new Date() }); },
+    setLoad({ phase: 'loading', done: 0, total: null, changed: 0 });
+    fetchMessages((done, total, changed) => { if (alive) setLoad({ phase: 'loading', done, total, changed }); }).then(
+      (r) => { if (alive) setLoad({ phase: 'done', msgs: r.msgs, changed: r.changed, at: new Date() }); },
       (e: unknown) => { if (alive) setLoad({ phase: 'error', error: e instanceof Error ? e : new Error(String(e)) }); },
     );
     return () => { alive = false; };
@@ -69,9 +71,10 @@ export function Messages() {
   const counts = load.phase === 'done' ? messageCounts(load.msgs) : null;
   const count = (v: number | undefined) =>
     load.phase === 'error' ? <Unknown reason={`The message list did not load: ${load.error.message}`} /> : v === undefined ? <Skel /> : v;
+  // A message removed while the list is read is left out and counted here, not treated as a failure.
   const progress = load.phase === 'loading'
-    ? load.total === null ? 'Reading the message list' : `Reading message ${load.done + 1} of ${load.total}`
-    : null;
+    ? [load.total === null ? 'Reading the message list' : `Reading message ${load.done + 1} of ${load.total}`, changedNote(load.changed)].filter(Boolean).join(' · ')
+    : load.phase === 'done' ? changedNote(load.changed) : null;
 
   return (
     <>

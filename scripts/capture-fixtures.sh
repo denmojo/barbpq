@@ -41,7 +41,13 @@ for p in Status Conf HK FWD Users Wel; do
 done
 # Forwarding partners and the RMS record: both are POSTs; FwdDetails takes the call as the body
 get -b "$JAR" -X POST --data '' "$BASE/Mail/FwdList.txt?$KEY" >"$OUT/mail-fwdlist.txt"
-get -b "$JAR" -X POST --data 'RMS' "$BASE/Mail/FwdDetails?$KEY" >"$OUT/mail-fwddetails-rms.html"
+# FwdDetails for a call that is not a forwarding partner crashes linbpq (NULL ForwardingInfo):
+# ask for RMS only when the list just read holds it.
+if tr '|' '\n' <"$OUT/mail-fwdlist.txt" | grep -qx 'RMS'; then
+  get -b "$JAR" -X POST --data 'RMS' "$BASE/Mail/FwdDetails?$KEY" >"$OUT/mail-fwddetails-rms.html"
+else
+  echo "capture-fixtures: RMS is not a forwarding partner; skipped mail-fwddetails-rms.html" >&2
+fi
 # BBS users, white pages and messages: lists, then one record each (POSTs; the body is the call or number)
 get -b "$JAR" -X POST --data '' "$BASE/Mail/UserList.txt?$KEY" >"$OUT/mail-userlist.txt"
 get -b "$JAR" -X POST --data 'RMS' "$BASE/Mail/UserDetails?$KEY" >"$OUT/mail-userdetails-rms.html"

@@ -120,12 +120,14 @@ export function exclusive<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export async function fetchForwarding(): Promise<Forwarding> {
-  return withSysop(async () => {
+  // The list read and the FwdDetails POST are one job: a partner removed (or re-added without
+  // forwarding info) between them would send the node down its NULL ForwardingInfo path.
+  return withSysop(() => exclusive(async () => {
     const partners = parseFwdList(await postMail('FwdList.txt', ''));
     const call = partners.find((p) => p.toUpperCase() === RMS);
-    const rms = call ? parseFwdDetails(await exclusive(() => postMail('FwdDetails', call)), call) : null;
+    const rms = call ? parseFwdDetails(await postMail('FwdDetails', call), call) : null;
     return { partners, rms };
-  });
+  }));
 }
 
 export interface RouteStep {

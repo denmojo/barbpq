@@ -13,6 +13,7 @@ test('exclusive(): the shell poll FwdDetails(RMS) waits for a pick-and-save of a
     const body = init?.body ? Array.from(init.body as Uint8Array, (b) => String.fromCharCode(b)).join('') : '';
     const path = url.split('?')[0];
     if (path === '/Mail/FwdDetails' || path === '/Mail/FWDSave') order.push(`${path.slice(6)}(${body.split('|')[0]})`);
+    if (path === '/Mail/FwdList.txt') order.push('FwdList');
     let text = '';
     if (url === '/Mail/Header') text = fixture('mail-header.html');
     else if (url === `/Mail/FwdList.txt?${KEY}`) text = fixture('mail-fwdlist.txt');
@@ -24,11 +25,12 @@ test('exclusive(): the shell poll FwdDetails(RMS) waits for a pick-and-save of a
     return new Response(text, { status: 200 });
   });
   const save = saveRecord('fwd', 'AD6DM', () => 'x|');
-  await vi.waitFor(() => expect(order).toEqual(['FwdDetails(AD6DM)']));
+  await vi.waitFor(() => expect(order).toEqual(['FwdList', 'FwdDetails(AD6DM)']));
   const poll = fetchForwarding();
   await new Promise((r) => setTimeout(r, 20));
-  expect(order).toEqual(['FwdDetails(AD6DM)']);
+  // the poll's partner list read waits too: it and its FwdDetails(RMS) are one job
+  expect(order).toEqual(['FwdList', 'FwdDetails(AD6DM)']);
   release();
   await Promise.all([save, poll]);
-  expect(order).toEqual(['FwdDetails(AD6DM)', 'FWDSave(x)', 'FwdDetails(RMS)']);
+  expect(order).toEqual(['FwdList', 'FwdDetails(AD6DM)', 'FWDSave(x)', 'FwdList', 'FwdDetails(RMS)']);
 });
