@@ -209,7 +209,7 @@ export interface StoreForward {
   metaUnknown?: string;
 }
 
-/** The newest forward event that ran while the CMS was unreachable. Events arrive newest first. */
+/** The newest forward run whose own CMS attempt failed (the node logs each run after that attempt). Events arrive newest first. */
 export function lastFallback(events: UiEvent[]): UiEvent | undefined {
   return events.find((e) => e.kind === 'forward' && e.detail.cmsReachable === false);
 }

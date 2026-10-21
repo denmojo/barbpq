@@ -328,10 +328,13 @@ void uiapi_init(const char *bpqdir)
 	uiapi_init_at(bpqdir, time(NULL));
 }
 
+static void fwd_expire(time_t now, int force);
+
 void uiapi_tick(time_t now)
 {
 	time_t cur = bucket_start(now);
 
+	fwd_expire(now, 0);
 	if (save_path[0] == 0)
 		return;
 	if (cur == last_closed)
@@ -343,6 +346,7 @@ void uiapi_tick(time_t now)
 
 void uiapi_shutdown(void)
 {
+	fwd_expire(time(NULL), 1);
 	if (save_path[0])
 		uiapi_ring_save_at(save_path, time(NULL));
 }
@@ -687,23 +691,84 @@ int uiapi_events_json(char *buf, size_t cap, int limit)
 	return (int)b.len;
 }
 
-void uiapi_cms_result(int ok)
-{
-	time_t now = time(NULL);
+/* A forward run waits here for the CMS attempt its connect script makes, so
+   its event carries that attempt's outcome rather than the one before it.
+   A run with no CMS result within UI_FWD_WAIT seconds is logged as null. */
+#define UI_FWD_WAIT	120
 
+static struct
+{
+	time_t at;		/* 0: none pending */
+	char route[64];
+} fwd_pending;			/* ev_lock */
+
+static void forward_log(const char *route, int ok, time_t now)
+{
+	char detail[UI_DETAIL_MAX];
+	struct jbuf b = { detail, 0, sizeof(detail), 0 };
+
+	jb_printf(&b, "{\"route\":");
+	jb_str(&b, route, 64);
+	jb_printf(&b, ",\"cmsReachable\":%s}", ok < 0 ? "null" : ok ? "true" : "false");
+	uiapi_event_at("forward", b.over ? "{}" : detail, now);
+}
+
+/* Take the pending run if the caller should log it: always when force, else
+   only once its wait has run out. Returns 1 and fills route when taken. */
+static int fwd_take(time_t now, int force, char route[64])
+{
+	int took = 0;
+
+	pthread_mutex_lock(&ev_lock);
+	if (fwd_pending.at && (force || now - fwd_pending.at > UI_FWD_WAIT))
+	{
+		memcpy(route, fwd_pending.route, 64);
+		fwd_pending.at = 0;
+		took = 1;
+	}
+	pthread_mutex_unlock(&ev_lock);
+	return took;
+}
+
+static void fwd_expire(time_t now, int force)
+{
+	char route[64];
+
+	if (fwd_take(now, force, route))
+		forward_log(route, -1, now);
+}
+
+void uiapi_cms_result_at(int ok, time_t now)
+{
+	char route[64];
+	int have = 0;
+
+	fwd_expire(now, 0);		/* a run whose wait ran out does not take this result */
 	pthread_mutex_lock(&ev_lock);
 	cms_attempt = now;
 	if (ok)
 		cms_success = now;
 	cms_ok = ok ? 1 : 0;
+	if (fwd_pending.at)
+	{
+		memcpy(route, fwd_pending.route, 64);
+		fwd_pending.at = 0;
+		have = 1;
+	}
 	pthread_mutex_unlock(&ev_lock);
+	if (have)
+		forward_log(route, ok ? 1 : 0, now);
 }
 
-void uiapi_forward_event(const char *bbs, const char *script)
+void uiapi_cms_result(int ok)
 {
-	char detail[UI_DETAIL_MAX], route[64];
-	struct jbuf b = { detail, 0, sizeof(detail), 0 };
-	int ok, port = 0;
+	uiapi_cms_result_at(ok, time(NULL));
+}
+
+void uiapi_forward_event_at(const char *bbs, const char *script, time_t now)
+{
+	char route[64];
+	int port = 0;
 	const char *p = script;
 
 	/* Only the port number is taken from the connect script: other words
@@ -722,14 +787,16 @@ void uiapi_forward_event(const char *bbs, const char *script)
 	else
 		snprintf(route, sizeof(route), "%.12s", bbs ? bbs : "");
 
+	fwd_expire(now, 1);		/* an earlier run still waiting is logged as unknown */
 	pthread_mutex_lock(&ev_lock);
-	ok = cms_ok;
+	memcpy(fwd_pending.route, route, sizeof(route));
+	fwd_pending.at = now ? now : 1;
 	pthread_mutex_unlock(&ev_lock);
+}
 
-	jb_printf(&b, "{\"route\":");
-	jb_str(&b, route, sizeof(route));
-	jb_printf(&b, ",\"cmsReachable\":%s}", ok < 0 ? "null" : ok ? "true" : "false");
-	uiapi_event("forward", b.over ? "{}" : detail);
+void uiapi_forward_event(const char *bbs, const char *script)
+{
+	uiapi_forward_event_at(bbs, script, time(NULL));
 }
 
 /* ---- /api/ui handlers (linbpq only) ---- */

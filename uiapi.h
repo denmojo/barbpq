@@ -51,12 +51,17 @@ void uiapi_event_at(const char *kind, const char *detail_json, time_t now);
    bytes); an event that does not fit ends the list. Returns the length. */
 int uiapi_events_json(char *buf, size_t cap, int limit);
 
-/* A "forward" event for a connect to partner BBS bbs. Only a port number is
-   taken from the first connect script line, never any other word of it. */
+/* A forward run to partner BBS bbs is starting. Only a port number is taken
+   from the first connect script line, never any other word of it. The
+   "forward" event is written when the next CMS result arrives, carrying it
+   as cmsReachable, or with cmsReachable null if none comes within 120 s
+   (checked by uiapi_tick), if another run starts first, or at shutdown. */
 void uiapi_forward_event(const char *bbs, const char *script);
+void uiapi_forward_event_at(const char *bbs, const char *script, time_t now);
 
 /* Outcome of a CMS connect attempt (1 connected, 0 all servers failed) */
 void uiapi_cms_result(int ok);
+void uiapi_cms_result_at(int ok, time_t now);
 
 /* /api/ui handlers for nodeapi.c APIList */
 int uiapi_api_station(char *response, char *token, char *param, int Local);
