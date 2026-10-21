@@ -23,7 +23,7 @@ BarBPQ is Linux only. Its release bundle holds a 64-bit x86-64 Linux build of `l
 
 ## Screens
 
-Each port shows its driver, frequency, mode, address and whether its modem is linked. VARA reports its TNC connection, and KISS over TCP reports its socket; other drivers read Unknown, never a guess.
+Each port shows its driver, frequency, mode, address and whether its modem is linked. VARA reports its TNC connection and KISS over TCP its socket. A serial or USB KISS TNC reports whether the node holds its device open, which says nothing about whether the TNC answers. AXIP reports whether its socket is open and how many mapped peers were heard in the last hour. Other drivers read Unknown, never a guess. AXIP ports are internet links, so the Overview lists them apart from the radio ports, and they don't count when the banner decides whether every radio is down.
 
 <p align="center">
   <img src="docs/screenshots/ports.png" alt="The Ports table: VARA FM and Direwolf on 145.630 MHz listening, the Telnet server with unknown link state" width="100%">
