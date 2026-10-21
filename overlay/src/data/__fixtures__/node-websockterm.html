@@ -1,0 +1,59 @@
+<html><meta http-equiv=expires content=0>
+<head><title>Web Terminal</title></head>
+<link rel='stylesheet' href='webproc.css'>
+<script type = "text/javascript">
+var div, recon, ws;
+var CRLF = "\r\n";function doWindowSize()
+{
+ div = document.getElementById('div');
+ div.style.height = window.innerHeight - 125;}
+window.onresize = doWindowSize;
+function Action(data){
+req = new XMLHttpRequest();
+req.open('POST', 'TermAction?T000085546956', true);
+req.send(data);}
+function doWindowClose(){window.close();}function onLoad(){ doWindowSize(); recon = document.getElementById('recon');
+ OpenWebSocket(); history.pushState({}, '', '/Node/WebSockTerm.html');}function OpenWebSocket(){ if ("WebSocket" in window) {  // open a web socket. Get address from URL - changes to allow for https
+  var proto = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
+  ws = new WebSocket(proto + window.location.host + '/WEBTERM?T000085546956&N0CALL&hunter2x&1');
+  ws.onopen = function()  // Web Socket is connected
+  {
+   const div = document.getElementById('div');
+   div.textContent += 'Websock Connected' + CRLF
+   recon.style.display = 'none';   div.scrollTop = div.scrollHeight;
+  };
+  ws.onmessage = function (evt)  {   var received_msg = evt.data;
+   const div = document.getElementById('div');
+   div.textContent += received_msg
+   div.scrollTop = div.scrollHeight;
+  };
+  ws.onclose = function()  // websocket is closed.
+  {	 const div = document.getElementById('div');
+	 div.textContent += 'Websock Connection Lost' + CRLF;
+    div.scrollTop = div.scrollHeight;
+    recon.style.display = 'inline';  };  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  form.addEventListener('submit', function (e)
+  {
+   e.preventDefault(); // Stop normal HTTP submit
+   var inp = input.value + '\r'
+;   input.value = ''; // Clear the input
+	ws.send(inp);
+	div.textContent += inp;
+   div.scrollTop = div.scrollHeight;
+  })
+ }
+ else
+ {
+  // The browser doesn't support WebSocket
+  const div = document.getElementById('div');
+  div.textContent  = 'WebSocket not supported by your Browser - Websock Terminal not availible'
+ }}</script>
+</head>
+<body height: 600px; onload=onLoad()>
+<h3 align=center>BPQ32 Node N0CALL</h3><p align=center><input type=submit class='btn' value='Close Window' onclick='doWindowClose()'> <input id=recon type=submit class='btn' value='Reconnect'  onclick='OpenWebSocket()'> <span class='dropdown'><button class='dropbtn'>Actions</button>
+<span class='dropdown-content'><a href='javascript:Action("Disconnect");'>Disconnect from Node</a></span></span><div id='div' style="font-family:monospace;overflow:auto; white-space: pre-wrap; border: 1px solid">Waiting for connection...<br>
+</div>
+<div style='width:100%; height: 25px;'><form id='form' style="width: 100%;"><input autofocus type='text' style="font-family:monospace ;width: 100%;" id='input'></form>
+</div>
+</body></html>

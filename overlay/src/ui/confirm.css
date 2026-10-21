@@ -1,0 +1,10 @@
+/* Confirm dialog for shortcuts that change node state. */
+.cfm-scrim { position: fixed; inset: 0; z-index: 60; background: var(--scrim); display: grid; place-items: center; padding: 16px; }
+.cfm { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); width: min(440px, 100%); padding: 18px 20px; }
+.cfm h2 { margin: 0 0 8px; font-size: 16px; }
+.cfm p { margin: 0 0 10px; color: var(--text-muted); font-size: 13.5px; line-height: 1.5; }
+.cfm .cmd { display: block; background: var(--term-bg, #0e1013); color: var(--term-text, #c9d1d9); font: 13px var(--font-mono); padding: 8px 12px; border-radius: var(--radius); margin: 0 0 10px; }
+.cfm .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.cfm .row .btn { flex: none; width: auto; padding: 0 14px; }
+.btn.danger { background: var(--danger); border-color: transparent; color: #fff; }
+

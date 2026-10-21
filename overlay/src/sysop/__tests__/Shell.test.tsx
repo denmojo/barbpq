@@ -12,6 +12,9 @@ import { parseMailKey } from '../../data/pages';
 import { fixture, stubFetch } from '../../data/__tests__/helpers';
 import { expectNoOldPageLinks, prime } from '../../public/__tests__/prime';
 import { NOW } from '../../public/__tests__/sample';
+import { pendingCommand } from '../consoleproto';
+import { paletteItems } from '../palette';
+import { FakeWS } from './fakews';
 
 vi.mock('../../data/api', async () => (await import('../../public/__tests__/mocks')).MOCK_API());
 vi.mock('../../data/uiapi', async () => (await import('../../public/__tests__/mocks')).MOCK_UI());
@@ -143,14 +146,78 @@ test('recent changes stops at 10 entries of the 200-event poll', async () => {
   expect(region.querySelector('time')).toHaveTextContent('09:59');
 });
 
-test.each(['console', 'logs'] as const)(
-  'a screen not built yet (%s) shows Coming in this release and the footer', (r) => {
-    route.value = r;
-    const { container } = render(<SysopLayout />);
-    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-    expect(screen.getByText('Coming in this release.')).toBeInTheDocument();
-    expect(container.querySelector('footer.foot')).toHaveTextContent('BarBPQ - LinBPQ Web UI');
-  });
+test('console and logs open their own screens, with the footer', async () => {
+  vi.stubGlobal('WebSocket', FakeWS);
+  route.value = 'console';
+  const { container, unmount } = render(<SysopLayout />);
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Console');
+  expect(screen.getByRole('log', { name: 'Console output' })).toBeInTheDocument();
+  expect(container.querySelector('footer.foot')).toHaveTextContent('BarBPQ - LinBPQ Web UI');
+  unmount();
+  route.value = 'logs';
+  render(<SysopLayout />);
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Logs');
+  expect(screen.queryByText('Coming in this release.')).toBeNull();
+});
+
+test('health: the Console card sits beside Recent changes and its pills type a read-only command', async () => {
+  render(<SysopLayout />);
+  const con = await screen.findByRole('region', { name: 'Console' });
+  expect(con).toHaveClass('span-7');
+  expect(screen.getByRole('region', { name: 'Recent changes' })).toHaveClass('span-5');
+  expect(con.querySelector('.term')).not.toBeNull();
+  expect(within(con).getByRole('link', { name: 'Open full →' })).toHaveAttribute('href', '#/console');
+  fireEvent.click(within(con).getByRole('button', { name: 'PORTS' }));
+  expect(route.value).toBe('console');
+  expect(pendingCommand.value).toBe('PORTS');
+  pendingCommand.value = null;
+});
+
+test('health: Restart node asks first in an in-app dialog showing the exact command', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm');
+  const alertSpy = vi.spyOn(window, 'alert');
+  render(<SysopLayout />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Restart node' }));
+  const dlg = screen.getByRole('alertdialog', { name: 'Restart node?' });
+  expect(within(dlg).getByText('RESTART', { selector: 'code' })).toBeInTheDocument();
+  expect(pendingCommand.value).toBeNull();
+  fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(pendingCommand.value).toBeNull();
+  expect(route.value).toBe('health');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Restart node' }));
+  fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(pendingCommand.value).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Restart node' }));
+  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Send RESTART' }));
+  expect(pendingCommand.value).toBe('RESTART');
+  expect(route.value).toBe('console');
+  expect(confirmSpy).not.toHaveBeenCalled();
+  expect(alertSpy).not.toHaveBeenCalled();
+  pendingCommand.value = null;
+  confirmSpy.mockRestore();
+  alertSpy.mockRestore();
+});
+
+test('health has no Test CMS now shortcut: the node has no CMS test command', async () => {
+  render(<SysopLayout />);
+  await screen.findByRole('button', { name: 'Restart node' });
+  expect(screen.queryByRole('button', { name: /Test CMS/ })).toBeNull();
+});
+
+test('the palette carries console commands that type into the console', async () => {
+  render(<SysopLayout />);
+  const item = paletteItems().find((i) => i.label === 'Console: list commands (?)');
+  expect(item?.group).toBe('Console');
+  act(() => item?.action?.());
+  expect(route.value).toBe('console');
+  expect(pendingCommand.value).toBe('?');
+  pendingCommand.value = null;
+  expect(paletteItems().some((i) => /RESTART/i.test(i.label))).toBe(false);
+});
 
 test('the sysop document title is the call from /api/info and the public name', async () => {
   vi.mocked(api.getInfo).mockClear();

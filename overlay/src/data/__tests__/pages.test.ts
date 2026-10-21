@@ -58,6 +58,16 @@ test('parseLogText returns the textarea body', () => {
   expect(() => parseLogText('<p>x</p>')).toThrow(ParseError);
 });
 
+test('parseLogText keeps the raw bytes: the node writes the log into the textarea unescaped', () => {
+  const raw = '\nfirst &amp; <b>x</b>\n</textarea> inside\nlast';
+  expect(parseLogText(`<textarea id=log name=Msg>${raw}</textarea></div></body></html>`)).toBe(raw);
+  expect(parseLogText(fixture('node-showlog-bbs.html'))).toMatch(/^261021 00:00:11 \?\s+Msg 4 Routing Trace/);
+});
+
+test('parseLogText: the node reply for a missing file is null, not log text', () => {
+  expect(parseLogText(fixture('node-showlog-missing.html'))).toBeNull();
+});
+
 test('fetchLog requests the dated log and returns its text; a signed-out reply is not authorized', async () => {
   const calls = stubFetch({
     '/node/ShowLog.html?date=2026-10-20&NodeDebug=Node+Debug+Log': '<textarea id=log name=Msg>entry</textarea>',

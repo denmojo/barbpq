@@ -153,15 +153,24 @@ export function parseLogList(html: string): LogFile[] {
   return files;
 }
 
-/** The log text sits in the page's textarea. */
-export function parseLogText(html: string): string {
-  const area = doc(html).querySelector('textarea#log');
-  if (!area) throw new ParseError('Log', 'log text');
-  return (area as HTMLTextAreaElement).value;
+/** The node's reply when the day has no file of that kind: "Log <path> not found". */
+const LOG_MISSING = /^Log [^\r\n]+ not found$/;
+
+/**
+ * The log text sits in the page's textarea, written unescaped, so HTML parsing would change it
+ * (entities decoded, a leading newline dropped, a logged </textarea> cutting it short). Take the
+ * raw text between the opening tag and the LAST </textarea>. Null when the node found no file.
+ */
+export function parseLogText(html: string): string | null {
+  const open = /<textarea\b[^>]*\bid=["']?log\b[^>]*>/i.exec(html);
+  const end = html.toLowerCase().lastIndexOf('</textarea>');
+  if (!open || end < open.index + open[0].length) throw new ParseError('Log', 'log text');
+  const text = html.slice(open.index + open[0].length, end);
+  return LOG_MISSING.test(text) ? null : text;
 }
 
-/** Fetch one day's log (sysop only; throws NotAuthorizedError when signed out). */
-export async function fetchLog(file: LogFile, isoDate: string): Promise<string> {
+/** Fetch one day's log (sysop only; throws NotAuthorizedError when signed out). Null: no file that day. */
+export async function fetchLog(file: LogFile, isoDate: string): Promise<string | null> {
   const url = `/node/ShowLog.html?date=${isoDate}&${file.param}=${encodeURIComponent(file.label).replace(/%20/g, '+')}`;
   return parseLogText(await getProtected(url));
 }

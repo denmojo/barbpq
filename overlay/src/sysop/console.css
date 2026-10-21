@@ -1,0 +1,45 @@
+/* The console panel is dark in both themes (global constraint): its colours are fixed
+   tokens, defined once and never redefined per theme. Values from sysop-home-v2.html. */
+:root {
+  --term-bg: #0e1013;
+  --term-text: #c9d1d9;
+  --term-dim: #6e7681;
+  --term-ok: #3ccf6e;
+  --term-in: #86afff;
+  --term-line: #2a2f36;
+  --term-pill: #a5adb7;
+}
+
+.term { background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-lg); font: 12.5px/1.6 var(--font-mono); padding: 12px 14px; border: 1px solid var(--term-line); color-scheme: dark; min-width: 0; }
+.term .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; color: var(--term-dim); font-family: var(--font-sans); font-size: 12px; }
+.term .pill { border: 1px solid var(--term-line); border-radius: var(--radius-pill); padding: 2px 9px; color: var(--term-pill); background: transparent; font: inherit; cursor: pointer; }
+.term .pill:hover:not(:disabled) { color: var(--term-text); border-color: var(--term-dim); }
+.term .pill:disabled { opacity: .5; cursor: default; }
+.term .bar .state { margin-left: auto; }
+.term .ok { color: var(--term-ok); }
+.term .dim { color: var(--term-dim); }
+.term .in { color: var(--term-in); }
+.term .note { color: var(--term-dim); font-style: italic; }
+.term .cur { display: inline-block; width: 8px; height: 15px; background: var(--term-in); vertical-align: -3px; animation: term-blink 1s steps(1) infinite; }
+@keyframes term-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .term .cur { animation: none; } }
+
+.term-out { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; }
+.term-full { display: flex; flex-direction: column; height: calc(100vh - 210px); min-height: 320px; }
+.term-full .term-out { flex: 1; min-height: 0; }
+.term-in { display: flex; gap: 6px; align-items: center; border-top: 1px solid var(--term-line); margin-top: 8px; padding-top: 8px; }
+.term-in input { flex: 1; height: 22px; padding: 0; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--term-text); font: inherit; caret-color: var(--term-in); }
+.term-in input:disabled { color: var(--term-dim); }
+.term-full:focus-within { border-color: var(--term-dim); }
+
+/* Logs */
+.logs-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.logs-bar input[type=date], .logs-bar input[type=search] { height: 34px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); font: 13px var(--font-sans); padding: 0 10px; }
+.logs-bar input[type=search] { flex: 1; min-width: 160px; }
+.logs-bar .btn { flex: none; width: auto; padding: 0 12px; }
+.logs-files { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.logs-files .btn { flex: none; width: auto; padding: 0 12px; }
+.logs-files .btn[aria-pressed="true"] { background: var(--accent-weak); border-color: var(--accent); color: var(--text); }
+.logs-meta { color: var(--text-muted); font-size: 12.5px; margin: 0 0 6px; }
+.logs-text { margin: 0; max-height: calc(100vh - 300px); min-height: 200px; overflow: auto; white-space: pre; }
+.logs-text mark { background: #f0b34a; color: #0e1013; border-radius: 2px; }

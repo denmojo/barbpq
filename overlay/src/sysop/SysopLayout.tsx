@@ -10,10 +10,11 @@ import { useOnce } from '../data/poll';
 import '../public/public.css';
 import './sysop.css';
 import { CommandPalette, usePaletteHotkey } from './CommandPalette';
-import { ComingSoon } from './ComingSoon';
+import { Console, useConsolePalette } from './Console';
 import { Health } from './Health';
 import { IconMenu, IconMoon, IconSearch, IconSignOut } from './icons';
-import { COMING, labelOf, NAV, type NavItem } from './nav';
+import { labelOf, NAV, type NavItem } from './nav';
+import { Logs } from './Logs';
 import { registerPaletteItems } from './palette';
 import { ShellContext, useShellPolls, type ShellData } from './shell';
 import { NodeSettings, useSettingsPalette } from './settings/NodeSettings';
@@ -35,6 +36,13 @@ const MAIL_SCREENS: Partial<Record<Route, () => JSX.Element>> = {
   bbsusers: () => <BbsUsers />,
   housekeeping: () => <Housekeeping />,
   mailsettings: () => <MailSettings />,
+};
+
+const SYSTEM_SCREENS: Partial<Record<Route, () => JSX.Element>> = {
+  health: () => <Health />,
+  settings: () => <NodeSettings />,
+  console: () => <Console />,
+  logs: () => <Logs />,
 };
 
 function doSignOut(): void {
@@ -96,6 +104,7 @@ export function SysopLayout() {
   usePaletteBase();
   useSettingsPalette();
   useMailPalette();
+  useConsolePalette();
 
   const st = data.station.data;
   const call = st?.call;
@@ -158,12 +167,12 @@ export function SysopLayout() {
         <Sidebar current={r} data={data} open={menu} onPick={() => setMenu(false)} />
 
         <main class="sys-main">
-          {MAIL_SCREENS[r] ? MAIL_SCREENS[r]() : r === 'health' ? <Health /> : r === 'settings' ? <NodeSettings /> : PublicScreen ? (
+          {MAIL_SCREENS[r] ? MAIL_SCREENS[r]() : SYSTEM_SCREENS[r] ? SYSTEM_SCREENS[r]() : PublicScreen ? (
             <>
               <div class="titlebar"><h1>{labelOf(r)}</h1></div>
               <PublicScreen />
             </>
-          ) : COMING.includes(r) ? <ComingSoon route={r} /> : <Health />}
+          ) : <Health />}
         </main>
       </div>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}

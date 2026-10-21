@@ -42,9 +42,8 @@ export const NAV: NavGroup[] = [
 
 export const NAV_ITEMS: NavItem[] = NAV.flatMap((g) => g.items);
 
-/** Screens later tasks build; until then their sidebar entries open a "Coming in this release" screen. */
-export const COMING: Route[] = ['console', 'logs'];
-
-export const SYSOP_ROUTES: Route[] = ['health', 'settings', 'messages', 'forwarding', 'bbsusers', 'housekeeping', 'mailsettings', ...COMING];
+export const SYSOP_ROUTES: Route[] = [
+  'health', 'settings', 'messages', 'forwarding', 'bbsusers', 'housekeeping', 'mailsettings', 'console', 'logs',
+];
 
 export const labelOf = (r: Route): string => NAV_ITEMS.find((i) => i.route === r)?.label ?? (r === 'overview' ? 'Overview' : r);
