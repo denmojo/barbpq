@@ -1,0 +1,1 @@
+{"ports":[{"number":1,"state":"unknown","detail":"driver reports no link state"},{"number":3,"state":"down","detail":"VARA modem not connected"},{"number":2,"state":"down","detail":"KISS TCP not connected"}]}

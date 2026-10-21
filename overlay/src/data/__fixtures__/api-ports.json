@@ -1,0 +1,5 @@
+{"ports":[
+ {"ID":"Telnet Server", "Driver":"TELNET", "Number":1,"State":"Open"},
+ {"ID":"VARA FM", "Driver":"VARA", "Number":3,"State":"Closed"},
+ {"ID":"Direwolf", "Driver":"ASYNC", "Number":2,"State":"Closed"}
+]}
