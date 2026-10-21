@@ -53,3 +53,22 @@
   .mf-actions { margin-left: 0; width: 100%; }
   .mf-fields { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Message panel */
+.msg-panel .msg-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.msg-panel .msg-actions .btn { flex: none; width: auto; padding: 0 14px; }
+.msg-panel .msg-actions .btn:disabled { opacity: .45; cursor: default; }
+.msg-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 16px; margin: 4px 0 12px; }
+.msg-fields > div { min-width: 0; }
+.msg-fields .wide { grid-column: 1 / -1; }
+.msg-fields dt { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.msg-fields dd { margin: 2px 0 0; font-size: 13.5px; overflow-wrap: anywhere; }
+.msg-edit { margin: 4px 0 12px; }
+.msg-edit .msg-actions { margin-top: 12px; }
+.msg-fwd h3, .msg-text-wrap h3 { margin: 14px 0 6px; font-size: 13px; font-weight: 650; }
+.msg-fwd .btn.small { width: auto; padding: 0 11px; height: 28px; font-size: 12.5px; }
+.msg-text { margin: 0; padding: 10px 12px; max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 var(--font-mono); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.tbl tr.open td { background: var(--accent-weak); }
+.msg-open { border: 0; padding: 0; background: none; color: var(--accent); font: 600 13px var(--font-mono); cursor: pointer; }
+.msg-open:hover { text-decoration: underline; }
+.msg-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

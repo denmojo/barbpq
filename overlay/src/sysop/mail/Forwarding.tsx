@@ -6,7 +6,8 @@ import { Footer } from '../../public/Footer';
 import { useShell } from '../shell';
 import { pickFrom, setPicked } from './drafts';
 import { controlsOf, formValues, initialDraft, pipeBody } from './mailform';
-import { loadFormPage, loadRecord, saveFormPage, saveRecord } from './maildata';
+import { loadFormPage, loadRecord, saveFormPage, saveRecord, startForwarding } from './maildata';
+import { formatClock } from '../../ui/format';
 import { FormSection, useMailForm, type MailFormState } from './FormSection';
 import { RecordPicker } from './RecordPicker';
 import './mail.css';
@@ -47,6 +48,40 @@ function CopyFrom({ call, partners, state }: { call: string; partners: string[];
   );
 }
 
+/**
+ * The old page's Start Forwarding button: the node connects to the partner now with its connect
+ * script, whatever the poll timer says. The note shows what the node answered.
+ */
+function StartForwarding({ call }: { call: string }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<Error | undefined>();
+  const start = async () => {
+    setBusy(true);
+    setNote(null);
+    setError(undefined);
+    try {
+      const out = await startForwarding(call);
+      const queued = out.value.queued === null ? 'it gave no queue count' : `${out.value.queued} ${out.value.queued === 1 ? 'message' : 'messages'} queued`;
+      setNote(out.interrupted
+        ? `The sign-in ran out as Start Forwarding was sent, so it was not sent again. The node's record for ${call} now shows ${queued}.`
+        : `Start Forwarding sent at ${formatClock(new Date())}. The node answered with ${call}'s record: ${queued}. The run appears under Recent changes when it ends.`);
+    } catch (e) {
+      setError(e instanceof Error ? e : new Error(String(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div class="mf-copy">
+      <button type="button" class="btn" disabled={busy} onClick={() => void start()}>Start forwarding</button>
+      <span class="muted">{`Connects to ${call} now with its connect script.`}</span>
+      {note && <p class="mf-note" role="status">{note}</p>}
+      {error && <ErrorNote error={error} />}
+    </div>
+  );
+}
+
 export function Forwarding() {
   const shell = useShell();
   const partners = shell.fwd.data?.partners;
@@ -71,6 +106,7 @@ export function Forwarding() {
       {call && (
         <FormSection title={`Forwarding for ${call}`} page="fwd" state={record}
           onSave={() => void record.save((_c, draft, guard) => saveRecord('fwd', call, (spec) => pipeBody('fwd', controlsOf(spec), draft), guard))}>
+          <StartForwarding key={`start:${call}`} call={call} />
           {partners && <CopyFrom key={call} call={call} partners={partners} state={record} />}
         </FormSection>
       )}

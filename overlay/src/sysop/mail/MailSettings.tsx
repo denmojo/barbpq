@@ -6,9 +6,9 @@ import { Tabs } from '../../ui/Tabs';
 import { Footer } from '../../public/Footer';
 import { mailTab, pickFrom, setPicked, type MailTab } from './drafts';
 import { controlsOf, formValues, pipeBody } from './mailform';
-import { listRecords, loadFormPage, loadRecord, saveFormPage, saveRecord } from './maildata';
+import { deleteRecord, listRecords, loadFormPage, loadRecord, saveFormPage, saveRecord } from './maildata';
 import { FormSection, useMailForm } from './FormSection';
-import { RecordPicker } from './RecordPicker';
+import { ConfirmButton, RecordPicker } from './RecordPicker';
 import './mail.css';
 
 
@@ -37,22 +37,45 @@ function Welcome() {
 function WhitePages() {
   const [calls, setCalls] = useState<string[] | undefined>();
   const [error, setError] = useState<Error | undefined>();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<Error | undefined>();
   useEffect(() => {
     listRecords('wp').then(setCalls, (e: unknown) => setError(e instanceof Error ? e : new Error(String(e))));
   }, []);
   const call = pickFrom('wp', calls);
   const form = useMailForm(call ? `wp:${call}` : null, () => loadRecord('wp', call as string));
+  const remove = async (c: string) => {
+    setBusy(true);
+    setNote(null);
+    setActionError(undefined);
+    try {
+      const out = await deleteRecord('wp', c);
+      // The list as the node now has it; the reply to the delete itself is not read (see LastWpRecordError).
+      setCalls(out.value.calls);
+      const state = out.value.gone ? `the node's list no longer holds ${c}` : `the node still lists ${c}`;
+      setNote(out.interrupted ? `The sign-in ran out as the delete was sent, so it was not sent again; ${state}.` : `Deleted: ${state}.`);
+      if (!out.value.gone && !out.interrupted) setActionError(new Error(`The node did not delete ${c}`));
+    } catch (e) {
+      setActionError(e instanceof Error ? e : new Error(String(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       {error && <ErrorNote error={error} />}
       <div class="grid">
         <Card title="White pages records" span={12}>
-          <RecordPicker label="White pages records" calls={calls} picked={call} onPick={(c) => setPicked('wp', c)} empty="The white pages are empty." />
+          <RecordPicker label="White pages records" calls={calls} picked={call} onPick={(c) => { setPicked('wp', c); setNote(null); }} empty="The white pages are empty." />
+          {note && <p class="mf-note" role="status">{note}</p>}
+          {actionError && <ErrorNote error={actionError} />}
         </Card>
       </div>
       {call && (
         <FormSection title={`White pages for ${call}`} page="wp" state={form}
-          onSave={() => void form.save((_c, draft, guard) => saveRecord('wp', call, (spec) => pipeBody('wp', controlsOf(spec), draft), guard))} />
+          onSave={() => void form.save((_c, draft, guard) => saveRecord('wp', call, (spec) => pipeBody('wp', controlsOf(spec), draft), guard))}
+          extra={<ConfirmButton label="Delete record" confirm={`Delete ${call} from the white pages?`} busy={busy} onConfirm={() => void remove(call)} />} />
       )}
     </>
   );

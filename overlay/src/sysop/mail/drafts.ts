@@ -1,4 +1,4 @@
-// Unsaved mail edits and the record each screen has open, in memory only (never browser
+// Unsaved mail edits, the record each screen has open, and the open message, in memory only (never browser
 // storage): a password typed into a draft must not outlive the page. They survive the screen
 // unmounting while the sign-in screen is up after a session expires.
 import { signal } from '@preact/signals';
@@ -39,9 +39,15 @@ export function pickFrom(screen: string, list: string[] | undefined): string | n
   return p && list.includes(p) ? p : list[0] ?? null;
 }
 
+/** The message open on the Messages screen, and the last change's result line for it. */
+export const openMessage = signal<number | null>(null);
+export const messageNote = signal<{ id: number; text: string } | null>(null);
+
 /** An explicit sign-out forgets every draft and open record. */
 export function resetMail(): void {
   drafts.value = {};
   picked.value = {};
   mailTab.value = 'conf';
+  openMessage.value = null;
+  messageNote.value = null;
 }

@@ -22,7 +22,26 @@ export function isNotAuthorized(html: string): boolean {
   return /Not authorized\w* - please sign in/.test(html) || /action=\/?Mail\/Signon/i.test(html);
 }
 
+/**
+ * The mail handlers' "Session had been lost" form: the node no longer knows the mail key in the
+ * URL. The node cookie may still be good, so a fresh key from /Mail/Header can be enough.
+ */
+export function isMailSessionLost(html: string): boolean {
+  return /action=\/?Mail\/Lost\?/i.test(html);
+}
+
+export class MailSessionLostError extends Error {
+  constructor() {
+    super('The node dropped this mail session');
+    this.name = 'MailSessionLostError';
+  }
+}
+
 export function assertAuthorized(html: string): string {
+  if (isMailSessionLost(html)) {
+    cachedKey = null;
+    throw new MailSessionLostError();
+  }
   if (isNotAuthorized(html)) {
     sysop.value = 'out';
     throw new NotAuthorizedError();
@@ -117,14 +136,24 @@ function waitForSignIn(): Promise<void> {
 }
 
 /**
- * Run fn; if it throws NotAuthorizedError, mark the sysop signed out, wait for a sign-in
- * and run it once more. The caller keeps its own draft; nothing here touches it.
+ * Run fn; if the node dropped the mail key, run it once more with a fresh key. If it throws
+ * NotAuthorizedError (or the fresh key is refused too), mark the sysop signed out, wait for a
+ * sign-in and run it once more. The caller keeps its own draft; nothing here touches it.
  */
 export async function withSysop<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
-    if (!(e instanceof NotAuthorizedError)) throw e;
+    if (e instanceof MailSessionLostError) {
+      // A dropped mail key: read a fresh one and run fn again; only if the node then asks for a
+      // sign-in does the sysop have to sign in.
+      cachedKey = null;
+      try {
+        return await fn();
+      } catch (e2) {
+        if (!(e2 instanceof NotAuthorizedError) && !(e2 instanceof MailSessionLostError)) throw e2;
+      }
+    } else if (!(e instanceof NotAuthorizedError)) throw e;
     sysop.value = 'out';
     cachedKey = null;
     await waitForSignIn();

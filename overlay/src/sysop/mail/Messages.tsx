@@ -1,5 +1,6 @@
 // Messages: every BBS message, read the way the old Msgs page reads them (MsgInfo.txt, then
-// one MsgDetails each), with counts taken from their status fields.
+// one MsgDetails each), with counts taken from their status fields. A message opens in a panel
+// (MessagePanel) for its details, its text and the changes the old page allows.
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { Card } from '../../ui/Card';
@@ -12,17 +13,22 @@ import { formatClock } from '../../ui/format';
 import { Footer } from '../../public/Footer';
 import { IconMessages } from '../icons';
 import { fetchMessages, type MailMessage } from './maildata';
+import { MessagePanel, STATUS_NAME } from './MessagePanel';
+import { messageNote, openMessage } from './drafts';
 
 const changedNote = (n: number): string | null => (n ? `${n} ${n === 1 ? 'message' : 'messages'} changed while reading` : null);
 import './mail.css';
 
 /** Status letters as the node stores them (MsgInfo.status; the Status select on MsgDetails). */
-export const STATUS: Record<string, string> = {
-  N: 'New', Y: 'Read', F: 'Forwarded', K: 'Killed', H: 'Held', D: 'Delivered', $: 'Bulletin',
-};
+export const STATUS = STATUS_NAME;
 const TYPE: Record<string, string> = { P: 'Personal', B: 'Bulletin', T: 'NTS' };
 
 const NO_BOUNCED = 'LinBPQ has no bounced status: a returned message arrives as a new message, so the list cannot count bounces';
+
+/** The list's columns, from a message's details. */
+const pickRow = (d: MailMessage): MailMessage => ({
+  id: d.id, bid: d.bid, type: d.type, status: d.status, to: d.to, from: d.from, via: d.via, size: d.size, subject: d.subject, sent: d.sent,
+});
 
 /** Held is status H, sent is status F (forwarded). */
 export function messageCounts(msgs: MailMessage[]): { held: number; sent: number } {
@@ -39,10 +45,12 @@ function Tile({ k, title, children }: { k: string; title: string; children: Comp
   return <div class="q" title={title}><div class="k">{k}</div><div class="v">{children}</div></div>;
 }
 
-function Row({ m }: { m: MailMessage }) {
+function Row({ m, open, onOpen }: { m: MailMessage; open: boolean; onOpen: () => void }) {
   return (
-    <tr class={m.status === 'H' ? 'held' : undefined}>
-      <td class="mono r">{m.id}</td>
+    <tr class={[m.status === 'H' ? 'held' : '', open ? 'open' : ''].join(' ').trim() || undefined}>
+      <td class="mono r">
+        <button type="button" class="msg-open" aria-label={`Open message ${m.id}`} aria-pressed={open ? 'true' : 'false'} onClick={onOpen}>{m.id}</button>
+      </td>
       <td title={TYPE[m.type] ?? m.type}>{m.type}</td>
       <td>{STATUS[m.status] ?? <Unknown reason={`Status letter "${m.status}" is not one LinBPQ documents`} />}</td>
       <td class="mono">{m.from}</td>
@@ -57,6 +65,12 @@ function Row({ m }: { m: MailMessage }) {
 export function Messages() {
   const [load, setLoad] = useState<Load>({ phase: 'loading', done: 0, total: null, changed: 0 });
   const [tries, setTries] = useState(0);
+  const openId = openMessage.value;
+  const setOpenId = (id: number | null): void => { openMessage.value = id; if (id === null) messageNote.value = null; };
+  // A change made from the panel shows in its row from the node's reply, without reading every message again.
+  const changed = (d: MailMessage): void => {
+    setLoad((l) => (l.phase === 'done' ? { ...l, msgs: l.msgs.map((x) => (x.id === d.id ? { ...x, ...pickRow(d) } : x)) } : l));
+  };
   // One request per message on the node: read when the screen opens and on Refresh, never on a timer.
   useEffect(() => {
     let alive = true;
@@ -88,6 +102,7 @@ export function Messages() {
         </div>
       </div>
       <div class="grid">
+        {openId !== null && <MessagePanel id={openId} onClose={() => setOpenId(null)} onChanged={changed} />}
         <Card title="Message counts" span={12}>
           <div class="queue">
             <Tile k="Held" title="Messages with status H, held for sysop review">{count(counts?.held)}</Tile>
@@ -105,7 +120,7 @@ export function Messages() {
               { label: '#', align: 'right' }, { label: 'Type' }, { label: 'Status' }, { label: 'From' }, { label: 'To' },
               { label: 'Subject' }, { label: 'Size', align: 'right' }, { label: 'Sent' },
             ]}>
-              {load.msgs.map((m) => <Row key={m.id} m={m} />)}
+              {load.msgs.map((m) => <Row key={m.id} m={m} open={m.id === openId} onOpen={() => setOpenId(m.id === openId ? null : m.id)} />)}
             </Table>
           ))}
         </Card>

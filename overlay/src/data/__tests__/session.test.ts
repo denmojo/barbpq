@@ -1,4 +1,5 @@
-import { isNotAuthorized, signIn, sysop, mailKey, withSysop, NotAuthorizedError } from '../session';
+import { assertAuthorized, isMailSessionLost, isNotAuthorized, signIn, sysop, mailKey, signOut, withSysop, NotAuthorizedError } from '../session';
+import { parseMailKey } from '../pages';
 import { fixture, stubFetch } from './helpers';
 
 afterEach(() => {
@@ -84,4 +85,39 @@ test('withSysop retries only once and passes other errors through', async () => 
   sysop.value = 'in';
   expect(await caught).toBeInstanceOf(NotAuthorizedError);
   expect(n).toBe(3);
+});
+
+test('a mail key the node has dropped ("Session had been lost") gets a fresh key and one retry, with no sign-in', async () => {
+  const header = fixture('mail-header.html');
+  const old = parseMailKey(header) as string;
+  let headers = 0;
+  let lost = true;
+  stubFetch({
+    '/Mail/Header': () => { headers += 1; return header; },
+    [`/Mail/Status?${old}`]: () => { if (lost) { lost = false; return fixture('mail-signon.html'); } return 'status page'; },
+  });
+  signOut();
+  sysop.value = 'in';
+  const run = withSysop(async () => assertAuthorized(await (await fetch(`/Mail/Status?${await mailKey()}`)).text()));
+  await expect(run).resolves.toBe('status page');
+  expect(headers).toBe(2);
+  expect(sysop.value).toBe('in');
+  expect(isNotAuthorized(fixture('mail-signon.html'))).toBe(false);
+  expect(isMailSessionLost(fixture('mail-signon.html'))).toBe(true);
+});
+
+test('a lost mail session whose cookie is gone too falls through to the sign-in and retry', async () => {
+  let signedOut = false;
+  stubFetch({
+    '/Mail/Header': () => (signedOut ? '<form action=/Mail/Signon?Mail>' : fixture('mail-header.html')),
+    [`/Mail/Status?${parseMailKey(fixture('mail-header.html'))}`]: () => { signedOut = true; return fixture('mail-signon.html'); },
+  });
+  signOut();
+  sysop.value = 'in';
+  const run = withSysop(async () => assertAuthorized(await (await fetch(`/Mail/Status?${await mailKey()}`)).text()));
+  await vi.waitFor(() => expect(sysop.value).toBe('out'));
+  signedOut = false;
+  stubFetch({ '/Mail/Header': fixture('mail-header.html'), [`/Mail/Status?${parseMailKey(fixture('mail-header.html'))}`]: 'ok' });
+  sysop.value = 'in';
+  await expect(run).resolves.toBe('ok');
 });

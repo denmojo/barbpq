@@ -472,6 +472,182 @@ test('Mail settings: White pages lists N0CALL and saves Name|Home1|...|ZIP2| aft
   expect(before.at(-1)).toMatchObject({ url: `/Mail/WPDetails?${KEY}`, body: 'N0CALL' });
 });
 
+// ---------- Mail actions (fixtures from scripts/capture-mail-actions.sh) ----------
+
+/** The staging MsgSave replies: a body ending |N| releases message 2, |K| kills it, |H| holds it. */
+function msgSave(body: string): string {
+  const [n] = body.split('|').slice(2, 3).map((bid) => bid.split('_')[0]);
+  const status = body.split('|')[7] as string;
+  const base = status === 'N' ? fixture('mail-msgsave-2-released.html') : fixture('mail-msgsave-2-held.html');
+  const page = status === 'K'
+    ? base.replace('<option selected value=H>', '<option  value=H>').replace('<option  value=K>', '<option selected value=K>')
+    : base;
+  return page.replace('<h4>Message 2</h4>', `<h4>Message ${n}</h4>`);
+}
+
+const panel = () => screen.findByRole('region', { name: 'Message 2' });
+
+test('Messages: opening a message shows every field the node reports, and its forwarding table', async () => {
+  node();
+  const { container } = open('messages');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open message 2' }));
+  const p = await panel();
+  await within(p).findByText('uiapi test');
+  for (const [k, v] of [['From', 'N0CALL'], ['To', 'SYSOP'], ['BID', '2_AD6DM'], ['Type', 'P (Personal)'], ['Status', 'H (Held)'],
+    ['Received', '20-Oct 23:52Z'], ['Size', '7 bytes'], ['Attachments', 'None']] as const) {
+    expect(within(p).getByText(k).nextElementSibling).toHaveTextContent(v);
+  }
+  const fwd = within(p).getByRole('table');
+  expect(fwd).toHaveTextContent('AD6DM');
+  expect(fwd).toHaveTextContent('Not for this partner');
+  expect(within(p).getByRole('button', { name: 'Release' })).toBeEnabled();
+  expect(within(p).queryByRole('button', { name: 'Hold' })).toBeNull();
+  expectNoOldPageLinks(container);
+});
+
+test('Messages: Release posts MsgSave with status N after a fresh MsgDetails, and shows the node reply', async () => {
+  const calls = node({ [`/Mail/MsgSave?${KEY}`]: msgSave });
+  open('messages');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open message 2' }));
+  const p = await panel();
+  fireEvent.click(await within(p).findByRole('button', { name: 'Release' }));
+  await within(p).findByText('Released. The node now shows status N (New).');
+  const save = posts(calls, 'MsgSave');
+  expect(save.map((c) => c.body)).toEqual(['N0CALL|SYSOP|2_AD6DM|||uiapi test|P|N|']);
+  const i = calls.indexOf(save[0]!);
+  expect(calls[i - 1]).toMatchObject({ url: `/Mail/MsgDetails?${KEY}`, body: '2' });
+  expect(within(p).getByText('Status').nextElementSibling).toHaveTextContent('N (New)');
+  // The list row follows the node's reply.
+  const row = within(screen.getByRole('table', { name: 'Messages' })).getByRole('button', { name: 'Open message 2' }).closest('tr')!;
+  expect(row).toHaveTextContent('New');
+  expect(within(p).getByRole('button', { name: 'Hold' })).toBeInTheDocument();
+});
+
+test('Messages: Kill asks in the page first; Keep sends nothing, Yes sends one MsgSave with status K', async () => {
+  const calls = node({ [`/Mail/MsgSave?${KEY}`]: msgSave });
+  const confirm = vi.spyOn(window, 'confirm');
+  open('messages');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open message 2' }));
+  const p = await panel();
+  fireEvent.click(await within(p).findByRole('button', { name: 'Kill' }));
+  expect(within(p).getByText(/Kill message 2\?/)).toBeInTheDocument();
+  fireEvent.click(within(p).getByRole('button', { name: 'Keep' }));
+  expect(posts(calls, 'MsgSave')).toEqual([]);
+  fireEvent.click(within(p).getByRole('button', { name: 'Kill' }));
+  fireEvent.click(within(p).getByRole('button', { name: 'Yes, kill' }));
+  await within(p).findByText('Killed. The node now shows status K (Killed).');
+  expect(posts(calls, 'MsgSave').map((c) => c.body)).toEqual(['N0CALL|SYSOP|2_AD6DM|||uiapi test|P|K|']);
+  expect(within(p).queryByRole('button', { name: 'Kill' })).toBeNull();
+  expect(confirm).not.toHaveBeenCalled();
+  confirm.mockRestore();
+});
+
+test('Messages: a kill whose reply was the sign-in page is not sent again after sign-in', async () => {
+  let expired = false;
+  const signon = '<html><body><form method=post action=/Mail/Signon?Mail>Sign in</form></body></html>';
+  const calls = node({
+    '/Mail/Header': () => (expired ? signon : fixture('mail-header.html')),
+    [`/Mail/MsgSave?${KEY}`]: () => { expired = true; return signon; },
+    '/Node/Signon?Node': () => { expired = false; return fixture('node-signon.html'); },
+  });
+  open('messages');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open message 2' }));
+  const p = await panel();
+  fireEvent.click(await within(p).findByRole('button', { name: 'Kill' }));
+  fireEvent.click(within(p).getByRole('button', { name: 'Yes, kill' }));
+  // The shell gives way to the sign-in screen.
+  const user = await screen.findByLabelText(/user/i);
+  fireEvent.input(user, { target: { value: 'sysop' } });
+  fireEvent.input(screen.getByLabelText(/password/i), { target: { value: 'staging' } });
+  fireEvent.submit(user.closest('form')!);
+  // Back on Messages with the message open: the node's state, read again, and why nothing was resent.
+  await screen.findByText('The sign-in ran out as the kill was sent, so it was not sent again. The node now shows status H (Held).');
+  expect((await within(await panel()).findByText('Status')).nextElementSibling).toHaveTextContent('H (Held)');
+  expect(posts(calls, 'MsgSave')).toHaveLength(1);
+});
+
+test('Messages: Show text reads the message file through EditM after picking the message', async () => {
+  const calls = node({ [`/Mail/EditM?${KEY}?2`]: fixture('mail-editm-2.html') });
+  open('messages');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open message 2' }));
+  const p = await panel();
+  fireEvent.click(await within(p).findByRole('button', { name: 'Show text' }));
+  expect(await within(p).findByLabelText('Text of message 2')).toHaveTextContent('hello');
+  const i = calls.findIndex((c) => c.url === `/Mail/EditM?${KEY}?2`);
+  expect(calls[i - 1]).toMatchObject({ url: `/Mail/MsgDetails?${KEY}`, body: '2' });
+});
+
+test('Messages: Edit fields posts every field with the edits, and a "|" is refused before anything is sent', async () => {
+  const calls = node({ [`/Mail/MsgSave?${KEY}`]: () => fixture('mail-msgsave-2-held.html').replace('value="uiapi test"', 'value="new title"') });
+  open('messages');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open message 2' }));
+  const p = await panel();
+  fireEvent.click(await within(p).findByRole('button', { name: 'Edit fields' }));
+  fireEvent.input(within(p).getByLabelText('Title'), { target: { value: 'a|b' } });
+  fireEvent.click(within(p).getByRole('button', { name: 'Save fields' }));
+  await within(p).findByText(/Title cannot hold "\|"/);
+  expect(posts(calls, 'MsgSave')).toEqual([]);
+  fireEvent.input(within(p).getByLabelText('Title'), { target: { value: 'new title' } });
+  fireEvent.input(within(p).getByLabelText('To'), { target: { value: 'AD6DM' } });
+  fireEvent.click(within(p).getByRole('button', { name: 'Save fields' }));
+  await within(p).findByText('Saved. The node now shows status H (Held).');
+  expect(posts(calls, 'MsgSave').map((c) => c.body)).toEqual(['N0CALL|AD6DM|2_AD6DM|||new title|P|H|']);
+});
+
+test('Messages: a forwarding step goes to MsgFwdUpdate for that partner and shows the cell as the node now has it', async () => {
+  const calls = node({ [`/Mail/Msgs?${KEY}`]: 'msgs page', [`/Mail/MsgFwdUpdate?${KEY}`]: () => fixture('mail-msgfwdupdate-4-queued.html').replace('Message 4', 'Message 2') });
+  open('messages');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open message 2' }));
+  const p = await panel();
+  fireEvent.click(await within(p).findByRole('button', { name: 'Queue for RMS' }));
+  await within(p).findByText('RMS: the node now shows queued.');
+  expect(posts(calls, 'MsgFwdUpdate').map((c) => c.body)).toEqual(['2']);
+  expect(within(p).getByRole('button', { name: 'Mark sent to RMS' })).toBeInTheDocument();
+});
+
+test('Forwarding: Start forwarding checks the partner list, picks the partner, sends StartForward and shows the reply', async () => {
+  const calls = node({ [`/Mail/FWDSave?${KEY}`]: (b) => (b === 'StartForward' ? fixture('mail-fwdsave-startforward-rms.html') : fwdPage('RMS')) });
+  setPicked('forwarding', 'RMS');
+  open('forwarding');
+  fireEvent.click(await screen.findByRole('button', { name: 'Start forwarding' }));
+  await screen.findByText(/Start Forwarding sent at .*The node answered with RMS's record: 0 messages queued\./);
+  const start = posts(calls, 'FWDSave').filter((c) => c.body === 'StartForward');
+  expect(start).toHaveLength(1);
+  const before = calls.slice(0, calls.indexOf(start[0]!)).filter((c) => c.method === 'POST');
+  expect(before.slice(-2).map((c) => `${c.url.split('?')[0]} ${c.body}`)).toEqual(['/Mail/FwdList.txt ', '/Mail/FwdDetails RMS']);
+});
+
+test('White pages: Delete record asks in the page first, then deletes and shows the list the node now has', async () => {
+  let deleted = false;
+  const calls = node({
+    [`/Mail/WPInfo.txt?${KEY}`]: () => (deleted ? 'N0CALL|</body></html>' : 'N0CALL|N1TEST|</body></html>'),
+    [`/Mail/WPDetails?${KEY}`]: (b) => fixture('mail-wpdetails-n0call.html').replace('value="N0CALL"', `value="${b}"`),
+    [`/Mail/WPSave?${KEY}`]: () => { deleted = true; return fixture('mail-wpdetails-n0call.html'); },
+  });
+  open('mailsettings');
+  fireEvent.click(await screen.findByRole('tab', { name: 'White pages' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'N1TEST' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete record' }));
+  expect(screen.getByText('Delete N1TEST from the white pages?')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
+  expect(posts(calls, 'WPSave')).toEqual([]);
+  fireEvent.click(screen.getByRole('button', { name: 'Delete record' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, delete record' }));
+  await screen.findByText("Deleted: the node's list no longer holds N1TEST.");
+  expect(posts(calls, 'WPSave').map((c) => c.body)).toEqual(['Delete']);
+  expect(screen.queryByRole('button', { name: 'N1TEST' })).toBeNull();
+});
+
+test('White pages: the only record is not deleted, with the reason', async () => {
+  const calls = node();
+  open('mailsettings');
+  fireEvent.click(await screen.findByRole('tab', { name: 'White pages' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete record' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, delete record' }));
+  await screen.findByText(/N0CALL is the only white pages record/);
+  expect(posts(calls, 'WPSave')).toEqual([]);
+});
+
 // ---------- Shell ----------
 
 test('the mail screens are routed, not Coming soon, and register palette entries', async () => {

@@ -53,8 +53,9 @@ export function BbsUsers() {
     setBusy(true);
     setActionError(undefined);
     try {
-      await deleteRecord('user', c);
-      await refresh();
+      const out = await deleteRecord('user', c);
+      setCalls(out.value.calls);
+      if (!out.value.gone && !out.interrupted) throw new Error(`The node did not delete ${c}`);
     } catch (e) {
       setActionError(toError(e));
     } finally {
