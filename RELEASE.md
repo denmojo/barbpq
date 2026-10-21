@@ -134,6 +134,9 @@ cmp /usr/local/bin/linbpq ~/linbpq-6.0.26.1.bak && echo "backup matches"
 # what the install added, and every start reuses the arguments and directory.
 # A re-run never turns a recorded html_created=1 or ui_created=1 back into 0.
 # Both refuse when BARBPQ_HTML names another directory than html=.
+# A record left by an earlier bundle (-3 or before) has no html= line; when it
+# says html_created=1 or ui_created=1, both refuse until one is added. Add
+# html=<the directory that install copied into> to it by hand, then go on.
 ./rollback.sh --record-install-state
 cat ~/barbpq/install-state       # args= must match the cmdline read in 3.2, less argv[0]
 

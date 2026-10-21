@@ -35,8 +35,8 @@ These steps assume linbpq runs as an ordinary user from `/usr/local/bin/linbpq`,
 1. Copy the bundle to the node and check it:
 
    ```bash
-   scp -r out/release/barbpq-6.0.26.1-4 user@node:~/barbpq/
-   cd ~/barbpq/barbpq-6.0.26.1-4 && sha256sum -c SHA256SUMS
+   scp -r out/release/barbpq-6.0.26.1-5 user@node:~/barbpq/
+   cd ~/barbpq/barbpq-6.0.26.1-5 && sha256sum -c SHA256SUMS
    ```
 
 2. Keep a copy of the current binary. `rollback.sh` restores from it.
@@ -53,7 +53,7 @@ These steps assume linbpq runs as an ordinary user from `/usr/local/bin/linbpq`,
    mkdir -p "$H" && cp -R HTML/. "$H"/
    ```
 
-   The record names the directory (`html=`). A rollback later needs the same `BARBPQ_HTML` if `H` is not `~/HTML`, and refuses, changing nothing, when the two differ.
+   The record names the directory (`html=`). A rollback later needs the same `BARBPQ_HTML` if `H` is not `~/HTML`, and refuses, changing nothing, when the two differ. A record written by bundle -3 or earlier has no `html=` line; if it says a directory was created, the rollback and a new record both refuse until you add `html=<that directory>` to it by hand.
 
 4. Replace the binary and restart linbpq in its tmux session. Run this from a shell of its own (an SSH session), never inside the tmux pane that runs linbpq. Moving into `/usr/local/bin` needs write access to the directory; without it, set `S=sudo` (otherwise `S=`). Giving the staged copy the binary's owner needs sudo when that owner is another user, such as root; set `C=sudo` then (otherwise `C=$S`). Run `sudo -v` first if either is set. The new binary is staged beside the old one and moved over it, so the installed file is never half-written. Each block ends in a gate line; go on only when it prints the line named.
 
@@ -84,7 +84,7 @@ Once linbpq is back, the new home page answers at the node's web port (for examp
 Run `rollback.sh` on the node from the bundle directory, again from a shell of its own. Its default paths are under the home directory of the user running it (`~/HTML`, `~/linbpq-6.0.26.1.bak`); set the `BARBPQ_*` variables listed by `./rollback.sh --help` for any other layout.
 
 ```bash
-cd ~/barbpq/barbpq-6.0.26.1-4
+cd ~/barbpq/barbpq-6.0.26.1-5
 ./rollback.sh --dry-run   # show what it would do
 ./rollback.sh
 ```
