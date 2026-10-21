@@ -275,3 +275,19 @@ test('captured from staging: message 3 with a title holding ", &amp;, <b> and th
   const [save] = posts(calls, 'MsgSave');
   expect(save!.body).toBe('SYSTEM|SYSOP|3_AD6DM|||Odd "q" &amp; <b> caf\xe9|P|H|');
 });
+
+// N3: the node does not escape fields, so a field can hold its own end marker. The cut is then
+// ambiguous, and an action refuses instead of writing a shortened value back.
+const TITLE_END = '"> <br><br><span align = center>';
+const VIA_END = '><br>Title&nbsp;';
+const withVia = (via: string) => DETAILS2.replace('name=VIA value=>', `name=VIA value=${via}>`);
+
+test.each([
+  ['Title', 'a' + TITLE_END + 'b', oddTitle('a' + TITLE_END + 'b')],
+  ['VIA', 'x' + VIA_END + 'y', withVia('x' + VIA_END + 'y')],
+])('a %s holding its own end marker is refused by Hold and by the list read, and nothing is written', async (field, _v, page) => {
+  expect(() => parseMsgDetails(page, 2)).toThrow(new RegExp(`${field}`, 'i'));
+  const calls = node({ '/Mail/Header': HEADER, '/Mail/MsgDetails': page, '/Mail/MsgSave': page });
+  await expect(setStatus(held(), 'H')).rejects.toThrow(new RegExp(field, 'i'));
+  expect(posts(calls, 'MsgSave')).toEqual([]);
+});

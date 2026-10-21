@@ -259,13 +259,29 @@ const RAW_FIELDS: [keyof RawMsgFields, string, string][] = [
   ['subject', 'name=Title value="', '"> <br><br><span align = center>'],
 ];
 
+/** What follows the last field in the template: the Edit Text button. */
+const AFTER_LAST = '<input onclick=editmsg(';
+
+/**
+ * The fields are read in template order, each from where the one before ended. A field can hold
+ * its own end marker (the node does not escape), and then the first marker is not necessarily
+ * the real end. So the cut is ambiguous, and refused, when the end marker appears again before
+ * the next field's start marker (for the last field, before the Edit Text button).
+ */
 export function rawMsgFields(html: string, n: number): RawMsgFields {
   const out = {} as RawMsgFields;
-  for (const [k, start, end] of RAW_FIELDS) {
-    const a = html.indexOf(start);
+  let at = 0;
+  for (const [i, [k, start, end]] of RAW_FIELDS.entries()) {
+    const a = html.indexOf(start, at);
     const b = a < 0 ? -1 : html.indexOf(end, a + start.length);
     if (a < 0 || b < 0) throw new ParseError(`Message ${n}`, `${k} as the node stores it`);
+    const nextStart = RAW_FIELDS[i + 1]?.[1] ?? AFTER_LAST;
+    const next = html.indexOf(nextStart, b + end.length);
+    if (next < 0) throw new ParseError(`Message ${n}`, `${k} as the node stores it`);
+    const again = html.indexOf(end, b + 1);
+    if (again >= 0 && again < next) throw new ParseError(`Message ${n}`, `${k === 'subject' ? 'Title' : k.toUpperCase()} with one clear end (it holds its own end marker, so where it stops is ambiguous)`);
     out[k] = html.slice(a + start.length, b);
+    at = next;
   }
   return out;
 }
