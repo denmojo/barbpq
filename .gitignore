@@ -6,6 +6,7 @@
 .vs/*
 # web UI overlay build output
 staging/
+staging-peer/
 # the gateway login for scripts/fetch-staging-config.sh (user@host), kept out of git
 scripts/gateway.local
 out/
