@@ -11,11 +11,11 @@
 //    FlagAsKilled, which clears the message's forwarding bits, as the old page's Save does.
 //  - MsgFwdUpdate steps one partner's cell: none -> queued -> sent -> none. It reads the partner
 //    from BBSLIST, which only a GET of /Mail/Msgs refreshes.
-import { getText, latin1Bytes, ParseError } from '../../data/http';
+import { latin1Bytes, ParseError } from '../../data/http';
 import { parseForm } from '../../data/forms';
-import { assertAuthorized, mailKey, withSysop } from '../../data/session';
-import { exclusive, parseFwdList, postMail } from '../model';
-import { ChangedOnNodeError, type MailMessage } from './maildata';
+import { withSysop } from '../../data/session';
+import { exclusive, parseFwdList, type MailJob } from '../model';
+import { ChangedOnNodeError, rawMsgFields, type MailMessage } from './maildata';
 import { sendOnce as once, type Outcome } from './sendonce';
 
 export type { Outcome };
@@ -51,10 +51,12 @@ export function parseMessageDetail(html: string, n: number): MessageDetail {
     if (!state) throw new ParseError(`Message ${n}`, `forwarding state for ${m[3]}`);
     fwd.push({ bbs: Number(m[2]), call: m[3] as string, state });
   }
+  // Text fields come out of the page text, not the DOM: see rawMsgFields.
+  const raw = rawMsgFields(html, n);
   return {
-    id: n, bid: v('BID'), type: v('Type'), status: v('Status'), to: v('To'), from: v('From'),
-    via: v('VIA'), size: Number(v('Size')), subject: v('Title'), sent: v('Sent'),
-    rx: v('RX'), lastChange: v('LastChange'), efrom: v('EFROM'), fwd,
+    id: n, bid: raw.bid, type: v('Type'), status: v('Status'), to: raw.to, from: raw.from,
+    via: raw.via, size: Number(v('Size')), subject: raw.subject, sent: v('Sent'),
+    rx: v('RX'), lastChange: v('LastChange'), efrom: raw.efrom, fwd,
     attachments: /SaveAttachment\?[^>]*><button type=button class='btn' >/.test(html),
   };
 }
@@ -113,8 +115,8 @@ export function releaseStatus(m: MessageDetail): string {
 }
 
 /** MsgDetails for one message, checked to be that message: anything else leaves the node with no current message. */
-async function pickMsg(n: number): Promise<MessageDetail> {
-  const html = await postMail('MsgDetails', String(n));
+async function pickMsg(job: MailJob, n: number): Promise<MessageDetail> {
+  const html = await job.post('MsgDetails', String(n));
   if (!new RegExp(`<h4>Message ${n}</h4>`).test(html)) throw new MessageGoneError(n);
   return parseMessageDetail(html, n);
 }
@@ -128,7 +130,7 @@ export class MessageGoneError extends Error {
 }
 
 export function loadMessage(n: number): Promise<MessageDetail> {
-  return withSysop(() => exclusive(() => pickMsg(n)));
+  return withSysop(() => exclusive((job) => pickMsg(job, n), `opening message ${n}`));
 }
 
 /** The node prints the message file into a page buffer of 250,000 bytes; refuse well short of it. */
@@ -148,16 +150,16 @@ export function readMessageText(n: number, size: number): Promise<string> {
   if (!Number.isFinite(size) || size > MAX_TEXT_BYTES) {
     return Promise.reject(new Error(`Message ${n} is ${size} bytes; the node's text page holds at most about ${MAX_TEXT_BYTES}, so it is not read here`));
   }
-  return withSysop(() => exclusive(async () => {
-    await pickMsg(n);
-    const html = assertAuthorized(await getText(`/Mail/EditM?${await mailKey()}?${n}`));
+  return withSysop(() => exclusive(async (job) => {
+    await pickMsg(job, n);
+    const html = await job.get('EditM', `?${n}`);
     const open = /<textarea[^>]*name=Msg>/.exec(html);
     const close = html.lastIndexOf('</textarea>');
     if (!open || close < open.index) throw new ParseError(`Message ${n} text`, 'text');
     const text = html.slice(open.index + open[0].length, close);
     if (text === 'Message Not Found') throw new Error(`The node has no text file for message ${n}`);
     return storedText(text);
-  }));
+  }, `reading message ${n}`));
 }
 
 
@@ -173,14 +175,25 @@ function sameFields(a: MessageDetail, b: MessageDetail, only?: MsgField[]): bool
  */
 export function saveMessage(opened: MessageDetail, edit: MsgEdit, check: 'status' | 'all'): Promise<Outcome<MessageDetail>> {
   const n = opened.id;
-  return once(async (post) => {
-    const fresh = await pickMsg(n);
+  // A kill goes only through setStatus, which the screen calls after its in-page question.
+  if (check === 'all' && edit.status === 'K' && opened.status !== 'K') return Promise.reject(new KillNeedsConfirmError(n));
+  return once(async (job, post) => {
+    const fresh = await pickMsg(job, n);
     if (!sameFields(opened, fresh, check === 'status' ? ['status'] : undefined)) throw new ChangedOnNodeError();
     const body = msgSaveBody(fresh, edit);
     return parseMessageDetail(await post('MsgSave', body), n);
-  }, () => pickMsg(n));
+  }, (job) => pickMsg(job, n), `the save of message ${n}`);
 }
 
+/** Status K from the field form: killing goes through the Kill button, which asks first. */
+export class KillNeedsConfirmError extends Error {
+  constructor(n: number) {
+    super(`To kill message ${n}, use Kill, which asks first; the field form does not set status K`);
+    this.name = 'KillNeedsConfirmError';
+  }
+}
+
+/** Release, hold or kill (the screen asks before a kill). */
 export const setStatus = (opened: MessageDetail, status: string): Promise<Outcome<MessageDetail>> => saveMessage(opened, { status }, 'status');
 
 const NEXT: Record<FwdState, FwdState> = { none: 'queued', queued: 'sent', sent: 'none' };
@@ -195,11 +208,11 @@ export function stepForward(opened: MessageDetail, bbs: number): Promise<Outcome
   const n = opened.id;
   const cell = opened.fwd.find((c) => c.bbs === bbs);
   if (!cell) return Promise.reject(new ParseError(`Message ${n}`, `forwarding cell ${bbs}`));
-  return once(async (post) => {
-    const partners = parseFwdList(await postMail('FwdList.txt', ''));
+  return once(async (job, post) => {
+    const partners = parseFwdList(await job.post('FwdList.txt', ''));
     if (!partners.some((p) => p.toUpperCase() === cell.call.toUpperCase())) throw new ParseError('Forwarding partners', `partner ${cell.call}`);
-    assertAuthorized(await getText(`/Mail/Msgs?${await mailKey()}`));
-    const fresh = await pickMsg(n);
+    await job.get('Msgs');
+    const fresh = await pickMsg(job, n);
     const now = fresh.fwd.find((c) => c.bbs === bbs);
     if (!now || now.call !== cell.call || now.state !== cell.state) throw new ChangedOnNodeError();
     const after = parseMessageDetail(await post('MsgFwdUpdate', latin1Bytes(String(bbs))), n);
@@ -208,5 +221,5 @@ export function stepForward(opened: MessageDetail, bbs: number): Promise<Outcome
       throw new ParseError(`Message ${n} reply`, `forwarding state for ${cell.call} (the node shows ${got?.state ?? 'no cell'})`);
     }
     return after;
-  }, () => pickMsg(n));
+  }, (job) => pickMsg(job, n), `the forwarding change for ${cell.call}`);
 }

@@ -80,8 +80,10 @@ function EditForm({ m, busy, onSave, onCancel }: {
         <div class="mf-field">
           <label for={`${id}-status`}>Status</label>
           <select id={`${id}-status`} value={v.status} onChange={set('status')}>
-            {MSG_STATUSES.map((s) => <option key={s} value={s}>{statusText(s)}</option>)}
+            {/* No K here unless the message is killed already: a kill goes through Kill, which asks first. */}
+            {MSG_STATUSES.filter((s) => s !== 'K' || m.status === 'K').map((s) => <option key={s} value={s}>{statusText(s)}</option>)}
           </select>
+          {m.status !== 'K' && <span class="mf-help">To kill the message, use Kill, which asks first.</span>}
         </div>
       </div>
       <div class="msg-actions">
@@ -125,7 +127,7 @@ export function MessagePanel({ id, onClose, onChanged }: { id: number; onClose: 
     try {
       const out = await run();
       setNote(out.interrupted
-        ? `The sign-in ran out as ${what} was sent, so it was not sent again. The node now shows status ${statusText(out.value.status)}.`
+        ? `The node's session ended as ${what} was sent, so it was not sent again. The node now shows status ${statusText(out.value.status)}.`
         : done(out.value));
       if (!alive.current) return;
       setLoad({ phase: 'done', m: out.value });

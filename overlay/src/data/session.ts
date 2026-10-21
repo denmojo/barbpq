@@ -37,9 +37,24 @@ export class MailSessionLostError extends Error {
   }
 }
 
-export function assertAuthorized(html: string): string {
+/** The mail key in a /Mail/ URL ("/Mail/Status?M0001" or "/Mail/EditM?M0001?2"), or undefined. */
+export function mailKeyOf(url: string): string | undefined {
+  if (!/^\/Mail\//i.test(url)) return undefined;
+  const k = url.split('?')[1];
+  return k ? k.split(/[?&]/)[0] : undefined;
+}
+
+/** The mail key this browser holds now, without asking the node for one. */
+export const currentMailKey = (): string | null => cachedKey;
+
+/**
+ * Throw when the node asked for a sign-in or dropped the mail session. `key` is the mail key
+ * the request carried: a lost-session reply forgets the cached key only when it is still that
+ * key, so a late reply to a request on an old key never clears a newer one.
+ */
+export function assertAuthorized(html: string, key?: string): string {
   if (isMailSessionLost(html)) {
-    cachedKey = null;
+    if (key === undefined || cachedKey === key) cachedKey = null;
     throw new MailSessionLostError();
   }
   if (isNotAuthorized(html)) {
@@ -51,7 +66,7 @@ export function assertAuthorized(html: string): string {
 
 /** GET a protected page, throwing NotAuthorizedError when the node asks for a sign-in. */
 export async function getProtected(url: string): Promise<string> {
-  return assertAuthorized(await getText(url));
+  return assertAuthorized(await getText(url), mailKeyOf(url));
 }
 
 /** The sign-in reply was neither the node menu nor the sign-in form again. */
@@ -145,9 +160,10 @@ export async function withSysop<T>(fn: () => Promise<T>): Promise<T> {
     return await fn();
   } catch (e) {
     if (e instanceof MailSessionLostError) {
-      // A dropped mail key: read a fresh one and run fn again; only if the node then asks for a
-      // sign-in does the sysop have to sign in.
-      cachedKey = null;
+      // A dropped mail key (assertAuthorized has forgotten it if it was still the cached one):
+      // run fn again, which reads a fresh key; only if the node then asks for a sign-in does the
+      // sysop have to sign in. A mail job never gets here: it turns a lost session into
+      // MailJobAbortedError, which is not retried.
       try {
         return await fn();
       } catch (e2) {

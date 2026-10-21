@@ -561,7 +561,7 @@ test('Messages: a kill whose reply was the sign-in page is not sent again after 
   fireEvent.input(screen.getByLabelText(/password/i), { target: { value: 'staging' } });
   fireEvent.submit(user.closest('form')!);
   // Back on Messages with the message open: the node's state, read again, and why nothing was resent.
-  await screen.findByText('The sign-in ran out as the kill was sent, so it was not sent again. The node now shows status H (Held).');
+  await screen.findByText("The node's session ended as the kill was sent, so it was not sent again. The node now shows status H (Held).");
   expect((await within(await panel()).findByText('Status')).nextElementSibling).toHaveTextContent('H (Held)');
   expect(posts(calls, 'MsgSave')).toHaveLength(1);
 });
@@ -592,6 +592,18 @@ test('Messages: Edit fields posts every field with the edits, and a "|" is refus
   fireEvent.click(within(p).getByRole('button', { name: 'Save fields' }));
   await within(p).findByText('Saved. The node now shows status H (Held).');
   expect(posts(calls, 'MsgSave').map((c) => c.body)).toEqual(['N0CALL|AD6DM|2_AD6DM|||new title|P|H|']);
+});
+
+test('Messages: the field form offers no status K, so a kill always goes through the in-page question', async () => {
+  const calls = node({ [`/Mail/MsgSave?${KEY}`]: msgSave });
+  open('messages');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open message 2' }));
+  const p = await panel();
+  fireEvent.click(await within(p).findByRole('button', { name: 'Edit fields' }));
+  const status = within(p).getByLabelText('Status') as HTMLSelectElement;
+  expect(Array.from(status.options).map((o) => o.value)).toEqual(['N', 'Y', 'F', 'H', 'D', '$']);
+  expect(within(p).getByText('To kill the message, use Kill, which asks first.')).toBeInTheDocument();
+  expect(posts(calls, 'MsgSave')).toEqual([]);
 });
 
 test('Messages: a forwarding step goes to MsgFwdUpdate for that partner and shows the cell as the node now has it', async () => {

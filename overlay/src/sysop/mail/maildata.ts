@@ -3,7 +3,7 @@
 import { parseForm, submitForm, type FormSpec } from '../../data/forms';
 import { getText, ParseError } from '../../data/http';
 import { assertAuthorized, getProtected, mailKey, withSysop } from '../../data/session';
-import { exclusive, parseFwdDetails, parseFwdList, postMail, type FwdRecord } from '../model';
+import { exclusive, parseFwdDetails, parseFwdList, postMail, type FwdRecord, type MailJob } from '../model';
 import { sendOnce, type Outcome } from './sendonce';
 import type { PipePage } from './fieldmaps';
 import { changedOnNode } from './mailform';
@@ -93,18 +93,18 @@ export function listRecords(kind: PipePage): Promise<string[]> {
   });
 }
 
-async function pick(kind: PipePage, call: string): Promise<FormSpec> {
-  return parseForm(await pickHtml(kind, call));
+async function pick(job: MailJob, kind: PipePage, call: string): Promise<FormSpec> {
+  return parseForm(await pickHtml(job, kind, call));
 }
 
 /** The picked record's page as the node sent it. */
-async function pickHtml(kind: PipePage, call: string): Promise<string> {
+async function pickHtml(job: MailJob, kind: PipePage, call: string): Promise<string> {
   // FwdDetails for a call that is not a forwarding partner crashes the node (SendFwdDetails
   // reads a NULL ForwardingInfo), so check the partner list first, every time.
-  if (kind === 'fwd' && !parseFwdList(await postMail(RECORD.fwd.list, '')).some((p) => p.toUpperCase() === call.toUpperCase())) {
+  if (kind === 'fwd' && !parseFwdList(await job.post(RECORD.fwd.list, '')).some((p) => p.toUpperCase() === call.toUpperCase())) {
     throw new ParseError('Forwarding partners', `partner ${call}`);
   }
-  const html = await postMail(RECORD[kind].details, call);
+  const html = await job.post(RECORD[kind].details, call);
   const got = recordCall(kind, html);
   if (got === null) throw new ParseError(`${RECORD[kind].title} ${call}`, 'record');
   if (got.toUpperCase() !== call.toUpperCase()) throw new ParseError(`${RECORD[kind].title} ${call}`, `record (the node sent ${got})`);
@@ -113,7 +113,7 @@ async function pickHtml(kind: PipePage, call: string): Promise<string> {
 
 /** One record's form. Picking it also makes it the node session's current record. */
 export function loadRecord(kind: PipePage, call: string): Promise<FormSpec> {
-  return withSysop(() => exclusive(() => pick(kind, call)));
+  return withSysop(() => exclusive((job) => pick(job, kind, call), `opening ${call}`));
 }
 
 /** The old pages' script sends the record with XMLHttpRequest, which encodes text as UTF-8. */
@@ -124,16 +124,16 @@ const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
  * from the freshly read form, post it, and check the reply is that record.
  */
 export function saveRecord(kind: PipePage, call: string, body: (spec: FormSpec) => string, guard?: SaveGuard): Promise<FormSpec> {
-  return withSysop(() => exclusive(async () => {
-    const spec = await pick(kind, call);
+  return withSysop(() => exclusive(async (job) => {
+    const spec = await pick(job, kind, call);
     checkGuard(guard, spec);
-    const reply = await postMail(RECORD[kind].save, utf8(body(spec)));
+    const reply = await job.post(RECORD[kind].save, utf8(body(spec)));
     const got = recordCall(kind, reply);
     if (got === null || got.toUpperCase() !== call.toUpperCase()) {
       throw new ParseError(`${RECORD[kind].title} ${call} reply`, got ? `saved record (the node answered for ${got})` : 'saved record');
     }
     return parseForm(reply);
-  }));
+  }, `the save of ${call}`));
 }
 
 /** Add a BBS user. The node answers with the user list, which then holds the new call. */
@@ -150,21 +150,21 @@ export interface DeleteResult { calls: string[]; gone: boolean }
  * it went, the retry after sign-in only reads the list (the outcome says so).
  */
 export function deleteRecord(kind: 'user' | 'wp', call: string): Promise<Outcome<DeleteResult>> {
-  const after = async (): Promise<DeleteResult> => {
+  const after = async (job: MailJob): Promise<DeleteResult> => {
     const calls = kind === 'wp'
-      ? parseFwdList(assertAuthorized(await getText(`/Mail/${RECORD.wp.list}?${await mailKey()}`)))
-      : parseFwdList(await postMail(RECORD.user.list, ''));
+      ? parseFwdList(await job.get(RECORD.wp.list))
+      : parseFwdList(await job.post(RECORD.user.list, ''));
     return { calls, gone: !calls.some((c) => c.toUpperCase() === call.toUpperCase()) };
   };
-  return sendOnce(async (post) => {
+  return sendOnce(async (job, post) => {
     if (kind === 'wp') {
-      const calls = (await after()).calls;
+      const calls = (await after(job)).calls;
       if (calls.length === 1 && calls[0]?.toUpperCase() === call.toUpperCase()) throw new LastWpRecordError(call);
     }
-    await pick(kind, call);
+    await pick(job, kind, call);
     await post(RECORD[kind].save, utf8('Delete'));
-    return after();
-  }, after);
+    return after(job);
+  }, after, `the delete of ${call}`);
 }
 
 /**
@@ -186,16 +186,16 @@ export class LastWpRecordError extends Error {
  * heading carries the queue count. Sent once, like a delete.
  */
 export function startForwarding(call: string): Promise<Outcome<FwdRecord>> {
-  const read = async (): Promise<FwdRecord> => parseFwdDetails(await pickHtml('fwd', call), call);
-  return sendOnce(async (post) => {
-    await pick('fwd', call);
+  const read = async (job: MailJob): Promise<FwdRecord> => parseFwdDetails(await pickHtml(job, 'fwd', call), call);
+  return sendOnce(async (job, post) => {
+    await pick(job, 'fwd', call);
     const reply = await post(RECORD.fwd.save, utf8('StartForward'));
     const got = recordCall('fwd', reply);
     if (got === null || got.toUpperCase() !== call.toUpperCase()) {
       throw new ParseError(`Forwarding ${call} reply`, got ? `record (the node answered for ${got})` : 'record');
     }
     return parseFwdDetails(reply, call);
-  }, read);
+  }, read, `Start Forwarding for ${call}`);
 }
 
 // ---------- the message list (the old Msgs page's data) ----------
@@ -233,10 +233,41 @@ export function parseMsgDetails(html: string, n: number): MailMessage {
     if (!f) throw new ParseError(`Message ${n}`, name);
     return f.value;
   };
+  const raw = rawMsgFields(html, n);
   return {
-    id: n, bid: v('BID'), type: v('Type'), status: v('Status'), to: v('To'), from: v('From'),
-    via: v('VIA'), size: Number(v('Size')), subject: v('Title'), sent: v('Sent'),
+    id: n, bid: raw.bid, type: v('Type'), status: v('Status'), to: raw.to, from: raw.from,
+    via: raw.via, size: Number(v('Size')), subject: raw.subject, sent: v('Sent'),
   };
+}
+
+/** The text fields MsgSave writes back, as raw text out of the page (one character per byte). */
+export interface RawMsgFields { from: string; to: string; bid: string; efrom: string; via: string; subject: string }
+
+/**
+ * The node prints these fields into the MsgDetails page as they are stored, with no HTML escaping
+ * (MailDetailPage, BBSHTMLConfig.c:287-313): From, To, EFROM and VIA unquoted, BID and Title in
+ * quotes. A DOM parser would cut a title at a '"', decode "&amp;", and so on, so the values are
+ * cut out of the page text between the template's own fixed neighbours instead. Those bytes are
+ * what the node holds, and what a save sends back for a field the sysop did not touch.
+ */
+const RAW_FIELDS: [keyof RawMsgFields, string, string][] = [
+  ['from', 'name=From value=', '> Sent&nbsp;'],
+  ['to', 'name=To value=', '> Received&nbsp;'],
+  ['bid', 'name=BID value="', '"> Last Changed '],
+  ['efrom', 'name=EFROM value=', '><br>&nbsp;VIA&nbsp;'],
+  ['via', 'name=VIA value=', '><br>Title&nbsp;'],
+  ['subject', 'name=Title value="', '"> <br><br><span align = center>'],
+];
+
+export function rawMsgFields(html: string, n: number): RawMsgFields {
+  const out = {} as RawMsgFields;
+  for (const [k, start, end] of RAW_FIELDS) {
+    const a = html.indexOf(start);
+    const b = a < 0 ? -1 : html.indexOf(end, a + start.length);
+    if (a < 0 || b < 0) throw new ParseError(`Message ${n}`, `${k} as the node stores it`);
+    out[k] = html.slice(a + start.length, b);
+  }
+  return out;
 }
 
 /**
@@ -251,16 +282,16 @@ export interface MessageRead { msgs: MailMessage[]; /** Messages gone between Ms
 const gone = (html: string, n: number): boolean => !new RegExp(`<h4>Message ${n}</h4>`).test(html);
 
 export function fetchMessages(onProgress?: (done: number, total: number, changed: number) => void): Promise<MessageRead> {
-  return withSysop(() => exclusive(async () => {
-    const numbers = parseMsgNumbers(await postMail('MsgInfo.txt', '||||'));
+  return withSysop(() => exclusive(async (job) => {
+    const numbers = parseMsgNumbers(await job.post('MsgInfo.txt', '||||'));
     const msgs: MailMessage[] = [];
     let changed = 0;
     for (const [i, n] of numbers.entries()) {
       onProgress?.(i, numbers.length, changed);
-      const html = await postMail('MsgDetails', String(n));
+      const html = await job.post('MsgDetails', String(n));
       if (gone(html, n)) changed += 1;
       else msgs.push(parseMsgDetails(html, n));
     }
     return { msgs, changed };
-  }));
+  }, 'the message list read'));
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Capture the replies of the sysop mail actions from the staging node (never from a real node):
 # message details, text, release, hold, kill, a forwarding step, Start Forwarding, WP Delete.
-# These change the staging BBS (message 2 is released and held again, message 1 is killed, the
+# These change the staging BBS (message 2 is released and held again, message 1 is killed,
+# message 3 gets an odd title, the
 # white pages record N0CALL is deleted), so they are kept apart from capture-fixtures.sh, which
 # only reads. Put the staging data back afterwards from a copy taken before.
 # Usage: scripts/capture-mail-actions.sh [base-url]   default http://127.0.0.1:18088
@@ -10,7 +11,6 @@ BASE="${1:-http://127.0.0.1:18088}"
 case "$BASE" in http://127.0.0.1:*|http://localhost:*) ;; *) echo "staging only (127.0.0.1)" >&2; exit 2 ;; esac
 OUT="$(cd "$(dirname "$0")/.." && pwd)/overlay/src/data/__fixtures__"
 JAR="$(mktemp)"
-trap 'rm -f "$JAR"' EXIT
 get() { curl -sf -m 20 "$@"; }
 
 get -c "$JAR" -d 'user=sysop&password=staging' "$BASE/Node/Signon?Node" >/dev/null
@@ -20,10 +20,11 @@ KEY="$(get -b "$JAR" "$BASE/Mail/Header" | grep -ao '/Mail/Status?[A-Za-z0-9]*' 
 post() { get -b "$JAR" -X POST --data-binary "$2" "$BASE/Mail/$1?$KEY"; }
 # MsgDetails for a number with no message leaves the session with no current message, and
 # MsgSave or EditM after that crashes the node: every pick here is checked for its heading.
+PICK="$(mktemp)"
+trap 'rm -f "$JAR" "$PICK"' EXIT
 pick() {
-  post MsgDetails "$1" >"$OUT/.pick.html"
-  grep -q "<h4>Message $1</h4>" "$OUT/.pick.html" || { echo "message $1 not found; stopping" >&2; rm -f "$OUT/.pick.html"; exit 1; }
-  rm -f "$OUT/.pick.html"
+  post MsgDetails "$1" >"$PICK"
+  grep -q "<h4>Message $1</h4>" "$PICK" || { echo "message $1 not found; stopping" >&2; exit 1; }
 }
 
 # A number with no message: the node's empty reply. Then pick a real one again at once.
@@ -43,14 +44,23 @@ post MsgSave 'N0CALL|SYSOP|2_AD6DM|||uiapi test|P|H|' >"$OUT/mail-msgsave-2-held
 pick 1
 post MsgSave 'SYSTEM|SYSOP|1_AD6DM|||New User N0CALL|P|K|' >"$OUT/mail-msgsave-1-killed.html"
 
-# One forwarding step for message 4 and partner RMS (BBS 2): none to queued. The Msgs page
-# GET refreshes the node's BBS list, which MsgFwdUpdate reads. Two more steps put it back.
+# One forwarding step for message 4 and partner RMS: none to queued. The Msgs page GET
+# refreshes the node's BBS list, which MsgFwdUpdate reads. RMS's BBS number is read from the
+# picked message's own forwarding table, as the UI does. Two more steps put it back.
 post FwdList.txt '' | tr '|' '\n' | grep -qx RMS || { echo "RMS is not a partner" >&2; exit 1; }
 get -b "$JAR" "$BASE/Mail/Msgs?$KEY" >/dev/null
 pick 4
-post MsgFwdUpdate 2 >"$OUT/mail-msgfwdupdate-4-queued.html"
-post MsgFwdUpdate 2 >"$OUT/mail-msgfwdupdate-4-sent.html"
-post MsgFwdUpdate 2 >/dev/null
+RMSNO="$(grep -ao 'onclick=ck("[0-9]*")>RMS<' "$PICK" | grep -o '[0-9][0-9]*' | head -1)"
+[ -n "$RMSNO" ] || { echo "no RMS cell in message 4's forwarding table" >&2; exit 1; }
+post MsgFwdUpdate "$RMSNO" >"$OUT/mail-msgfwdupdate-4-queued.html"
+post MsgFwdUpdate "$RMSNO" >"$OUT/mail-msgfwdupdate-4-sent.html"
+post MsgFwdUpdate "$RMSNO" >/dev/null
+
+# A title the node prints unescaped: a quote, an entity written literally, a tag, a Latin-1 byte.
+pick 3
+post MsgSave "$(printf 'SYSTEM|SYSOP|3_AD6DM|||Odd "q" &amp; <b> caf\351|P|N|')" >/dev/null
+pick 3
+cp "$PICK" "$OUT/mail-msgdetails-3-oddtitle.html"
 
 # Start Forwarding for RMS: partner check, pick, StartForward.
 post FwdList.txt '' | tr '|' '\n' | grep -qx RMS || { echo "RMS is not a partner" >&2; exit 1; }

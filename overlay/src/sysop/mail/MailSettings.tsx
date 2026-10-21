@@ -54,7 +54,7 @@ function WhitePages() {
       // The list as the node now has it; the reply to the delete itself is not read (see LastWpRecordError).
       setCalls(out.value.calls);
       const state = out.value.gone ? `the node's list no longer holds ${c}` : `the node still lists ${c}`;
-      setNote(out.interrupted ? `The sign-in ran out as the delete was sent, so it was not sent again; ${state}.` : `Deleted: ${state}.`);
+      setNote(out.interrupted ? `The node's session ended as the delete was sent, so it was not sent again; ${state}.` : `Deleted: ${state}.`);
       if (!out.value.gone && !out.interrupted) setActionError(new Error(`The node did not delete ${c}`));
     } catch (e) {
       setActionError(e instanceof Error ? e : new Error(String(e)));

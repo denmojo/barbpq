@@ -64,7 +64,7 @@ function StartForwarding({ call }: { call: string }) {
       const out = await startForwarding(call);
       const queued = out.value.queued === null ? 'it gave no queue count' : `${out.value.queued} ${out.value.queued === 1 ? 'message' : 'messages'} queued`;
       setNote(out.interrupted
-        ? `The sign-in ran out as Start Forwarding was sent, so it was not sent again. The node's record for ${call} now shows ${queued}.`
+        ? `The node's session ended as Start Forwarding was sent, so it was not sent again. The node's record for ${call} now shows ${queued}.`
         : `Start Forwarding sent at ${formatClock(new Date())}. The node answered with ${call}'s record: ${queued}. The run appears under Recent changes when it ends.`);
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)));

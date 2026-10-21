@@ -1,8 +1,8 @@
 // Readers for the sysop screens: the mail Status page, the forwarding records, the RMS
 // connect script, and the event log. Pure parsers are kept apart from the fetchers.
-import { latin1Bytes, postBody, ParseError } from '../data/http';
+import { getText, latin1Bytes, postBody, ParseError } from '../data/http';
 import { parseForm } from '../data/forms';
-import { assertAuthorized, getProtected, mailKey, withSysop } from '../data/session';
+import { assertAuthorized, currentMailKey, getProtected, mailKey, MailSessionLostError, withSysop } from '../data/session';
 import type { LinkState, StationPort, UiEvent } from '../data/uiapi';
 import type { Tone } from '../ui/StatusPill';
 import { formatClock, formatStamp } from '../ui/format';
@@ -100,21 +100,82 @@ export interface Forwarding {
 
 export const RMS = 'RMS';
 
-/** POST to a mail handler with the session key. A string body goes as ISO-8859-1. */
+/** POST to a mail handler with the session key. A string body goes as ISO-8859-1. Not for use inside a job: see MailJob. */
 export async function postMail(path: string, body: string | Uint8Array): Promise<string> {
   const bytes = typeof body === 'string' ? latin1Bytes(body) : body;
-  return assertAuthorized(await postBody(`/Mail/${path}?${await mailKey()}`, bytes));
+  const key = await mailKey();
+  return assertAuthorized(await postBody(`/Mail/${path}?${key}`, bytes), key);
+}
+
+/**
+ * The node lost the mail session while a pick-then-save job was running, so the record the job
+ * picked is gone with it. Nothing more was sent; the job is not retried on a fresh key, because
+ * a fresh node session has no current record and MsgSave, FWDSave and UserSave on it crash the
+ * node (BBSHTMLConfig.c ProcessMsgUpdate, SaveFwdDetails, ProcessUserUpdate read it unchecked).
+ */
+export class MailJobAbortedError extends Error {
+  constructor(what: string) {
+    super(`The node dropped the mail session during ${what}, so nothing more was sent. Run it again.`);
+    this.name = 'MailJobAbortedError';
+  }
+}
+
+/**
+ * One exclusive job's view of the mail session: every request goes out on the key the job
+ * started with. Before each request the job checks that key is still the one this browser
+ * holds; a lost-session reply, or a key that changed under it (another request found the
+ * session lost and a fresh one was handed out), aborts the job with nothing more sent.
+ */
+export interface MailJob {
+  readonly key: string;
+  /** POST to /Mail/<path>?<key>. */
+  post(path: string, body: string | Uint8Array): Promise<string>;
+  /** GET /Mail/<path>?<key><suffix>. */
+  get(path: string, suffix?: string): Promise<string>;
+  /** Throw MailJobAbortedError now if the key changed under the job. */
+  check(): void;
+  /** Check a reply that came back on this job's key. */
+  accept(html: string): string;
+}
+
+function makeJob(key: string, what: string): MailJob {
+  const job: MailJob = {
+    key,
+    check() {
+      if (currentMailKey() !== key) throw new MailJobAbortedError(what);
+    },
+    accept(html) {
+      try {
+        return assertAuthorized(html, key);
+      } catch (e) {
+        if (e instanceof MailSessionLostError) throw new MailJobAbortedError(what);
+        throw e;
+      }
+    },
+    async post(path, body) {
+      job.check();
+      const bytes = typeof body === 'string' ? latin1Bytes(body) : body;
+      return job.accept(await postBody(`/Mail/${path}?${key}`, bytes));
+    },
+    async get(path, suffix = '') {
+      job.check();
+      return job.accept(await getText(`/Mail/${path}?${key}${suffix}`));
+    },
+  };
+  return job;
 }
 
 let mailQueue: Promise<unknown> = Promise.resolve();
 
 /**
- * Run fn alone among the mail requests that pick a record. FwdDetails, UserDetails and
- * WPDetails set the node session's current record, and FWDSave, UserSave and WPSave write to
- * whichever record that is, so a pick and its save must not interleave with another pick.
+ * Run fn alone among the mail requests that pick a record. FwdDetails, UserDetails, WPDetails
+ * and MsgDetails set the node session's current record, and FWDSave, UserSave, WPSave and
+ * MsgSave write to whichever record that is, so a pick and its save must not interleave with
+ * another pick, and must go to the same node session: fn gets a MailJob pinned to one key.
  */
-export function exclusive<T>(fn: () => Promise<T>): Promise<T> {
-  const run = mailQueue.then(fn, fn);
+export function exclusive<T>(fn: (job: MailJob) => Promise<T>, what = 'this change'): Promise<T> {
+  const start = async (): Promise<T> => fn(makeJob(await mailKey(), what));
+  const run = mailQueue.then(start, start);
   mailQueue = run.catch(() => undefined);
   return run;
 }
@@ -122,10 +183,10 @@ export function exclusive<T>(fn: () => Promise<T>): Promise<T> {
 export async function fetchForwarding(): Promise<Forwarding> {
   // The list read and the FwdDetails POST are one job: a partner removed (or re-added without
   // forwarding info) between them would send the node down its NULL ForwardingInfo path.
-  return withSysop(() => exclusive(async () => {
-    const partners = parseFwdList(await postMail('FwdList.txt', ''));
+  return withSysop(() => exclusive(async (job) => {
+    const partners = parseFwdList(await job.post('FwdList.txt', ''));
     const call = partners.find((p) => p.toUpperCase() === RMS);
-    const rms = call ? parseFwdDetails(await postMail('FwdDetails', call), call) : null;
+    const rms = call ? parseFwdDetails(await job.post('FwdDetails', call), call) : null;
     return { partners, rms };
   }));
 }

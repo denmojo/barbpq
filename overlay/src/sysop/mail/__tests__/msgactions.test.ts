@@ -2,12 +2,14 @@
 // (scripts/capture-mail-actions.sh).
 import { bytesOf, fixture } from '../../../data/__tests__/helpers';
 import { signOut, sysop } from '../../../data/session';
-import { ChangedOnNodeError, deleteRecord, LastWpRecordError, startForwarding } from '../maildata';
+import { ChangedOnNodeError, deleteRecord, LastWpRecordError, parseMsgDetails, startForwarding } from '../maildata';
 import {
   loadMessage, MessageGoneError, msgSaveBody, MsgFieldError, parseMessageDetail, readMessageText, releaseStatus,
   setStatus, saveMessage, stepForward, MAX_TEXT_BYTES, type MessageDetail,
 } from '../msgactions';
 import { KEY } from './sample';
+import { MailJobAbortedError } from '../../model';
+import { KillNeedsConfirmError } from '../msgactions';
 
 type Hit = string | ((body: string) => string);
 interface Call { path: string; method: string; body: string }
@@ -127,15 +129,9 @@ test('double-send guard: a kill whose MsgSave got the sign-in page is not resent
   expect(posts(calls, 'MsgSave')).toHaveLength(1);
 });
 
-test('double-send guard: a lost mail key on the kill gets a fresh key and a re-read, not a second kill', async () => {
-  let lost = true;
-  const calls = node({
-    '/Mail/Header': HEADER,
-    '/Mail/MsgDetails': DETAILS2,
-    '/Mail/MsgSave': () => { if (lost) { lost = false; return LOST; } return 'second kill'; },
-  });
-  const out = await setStatus(held(), 'K');
-  expect(out.interrupted).toBe(true);
+test('a lost mail key on the kill aborts the job: MsgSave was answered by the lost page, nothing is resent', async () => {
+  const calls = node({ '/Mail/Header': HEADER, '/Mail/MsgDetails': DETAILS2, '/Mail/MsgSave': LOST });
+  await expect(setStatus(held(), 'K')).rejects.toBeInstanceOf(MailJobAbortedError);
   expect(posts(calls, 'MsgSave')).toHaveLength(1);
   expect(sysop.value).toBe('in');
 });
@@ -240,4 +236,42 @@ test('double-send guard: a WP Delete that got the sign-in page is not resent; th
   sysop.value = 'in';
   expect(await run).toEqual({ interrupted: true, value: { calls: ['N0CALL', 'N1TEST'], gone: false } });
   expect(posts(calls, 'WPSave')).toHaveLength(1);
+});
+
+// S2: the node prints message fields into its page unescaped, so a DOM read is not what it holds.
+/** MsgDetails for message 2 with a title as the node would print it: raw bytes, no escaping. */
+const oddTitle = (title: string) => DETAILS2.replace('name=Title value="uiapi test"', `name=Title value="${title}"`);
+
+test.each([
+  ['a double quote', 'say "hi" now'],
+  ['an entity written literally', 'Tom &amp; Jerry'],
+  ['a less-than sign', 'a <b> c'],
+  ['a Latin-1 byte', 'caf\xe9 \xb0C'],
+])('a status change resends a title holding %s as the bytes the node holds', async (_k, title) => {
+  const page = oddTitle(title);
+  const m = parseMessageDetail(page, 2);
+  expect(m.subject).toBe(title);
+  const calls = node({ '/Mail/Header': HEADER, '/Mail/MsgDetails': page, '/Mail/MsgSave': page.replace('<option selected value=H>', '<option  value=H>').replace('<option  value=N>', '<option selected value=N>') });
+  await setStatus(m, 'N');
+  expect(posts(calls, 'MsgSave').map((c) => c.body)).toEqual([`N0CALL|SYSOP|2_AD6DM|||${title}|P|N|`]);
+});
+
+test('the list parser reads the same raw fields', () => {
+  expect(parseMsgDetails(oddTitle('Tom &amp; "J" <x> \xe9'), 2).subject).toBe('Tom &amp; "J" <x> \xe9');
+});
+
+test('the field form cannot set status K; only Kill (asked first in the page) does', async () => {
+  const calls = node({ '/Mail/Header': HEADER, '/Mail/MsgDetails': DETAILS2, '/Mail/MsgSave': 'x' });
+  await expect(saveMessage(held(), { status: 'K' }, 'all')).rejects.toBeInstanceOf(KillNeedsConfirmError);
+  expect(calls).toEqual([]);
+});
+
+test('captured from staging: message 3 with a title holding ", &amp;, <b> and the byte E9 is read and resent as stored', async () => {
+  const page = fixture('mail-msgdetails-3-oddtitle.html');
+  const m = parseMessageDetail(page, 3);
+  expect(m.subject).toBe('Odd "q" &amp; <b> caf\xe9');
+  const calls = node({ '/Mail/Header': HEADER, '/Mail/MsgDetails': page, '/Mail/MsgSave': page });
+  await setStatus(m, 'H');
+  const [save] = posts(calls, 'MsgSave');
+  expect(save!.body).toBe('SYSTEM|SYSOP|3_AD6DM|||Odd "q" &amp; <b> caf\xe9|P|H|');
 });
