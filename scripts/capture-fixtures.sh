@@ -18,7 +18,6 @@ get "$BASE/api/ui/links" >"$OUT/ui-links.json"
 get "$BASE/api/ui/cms" >"$OUT/ui-cms.json"
 get "$BASE/api/ui/counts" >"$OUT/ui-counts.json"
 get "$BASE/api/ui/mheard/2" >"$OUT/ui-mheard.json"
-get "$BASE/api/ui/events?limit=5" >"$OUT/ui-events.json"
 
 # Public old pages
 get "$BASE/Node/Stats.html" >"$OUT/node-stats.html"
@@ -33,6 +32,9 @@ get "$BASE/Node/WebSockTerm.html" >"$OUT/node-termsignon.html"
 # Sign in (staging test user), keep the cookie
 get -c "$JAR" -d 'user=sysop&password=staging' "$BASE/Node/Signon?Node" >"$OUT/node-signon.html"
 grep -q BPQSessionCookie "$JAR" || { echo "sign-in failed" >&2; exit 1; }
+
+# Sysop-only JSON
+get -b "$JAR" "$BASE/api/ui/events?limit=5" >"$OUT/ui-events.json"
 
 # Sysop pages
 get -b "$JAR" "$BASE/Node/EditCfg.html" >"$OUT/node-editcfg.html"

@@ -1,6 +1,7 @@
 import { getInfo, getPorts, getUsers, getLinks, getNodes } from '../api';
 import { getStation, getLinkStates, getCms, getCounts, getHeard, getEvents } from '../uiapi';
 import { parseLooseJson } from '../http';
+import { NotAuthorizedError, sysop } from '../session';
 import { fixture, stubFetch } from './helpers';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -49,4 +50,11 @@ test('uiapi wrappers match the fork JSON', async () => {
   expect((await getEvents(5))[0]?.kind).toBe('restart');
   await getEvents();
   expect(calls.every((c) => (c.init as RequestInit | undefined)?.credentials === 'include')).toBe(true);
+});
+
+test('getEvents treats the node\'s 401 refusal as a lost sysop session', async () => {
+  sysop.value = 'in';
+  vi.stubGlobal('fetch', async () => new Response('{"error":"sysop sign-in required"}', { status: 401 }));
+  await expect(getEvents(200)).rejects.toBeInstanceOf(NotAuthorizedError);
+  expect(sysop.value).toBe('out');
 });

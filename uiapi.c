@@ -799,6 +799,49 @@ void uiapi_forward_event(const char *bbs, const char *script)
 	uiapi_forward_event_at(bbs, script, time(NULL));
 }
 
+/* ---- /api/ui/events: sysop only ---- */
+
+/* Set by the HTTP layer before each /api request: 1 when it carries a node
+   sysop session cookie that matches a live session. Per thread, since each
+   HTTP connection is served on its own thread. */
+static __thread int req_sysop;
+
+void uiapi_set_sysop(int signed_in)
+{
+	req_sysop = signed_in ? 1 : 0;
+}
+
+/* limit=N anywhere in the query string, default 20, 1..200 */
+static int events_limit(const char *param)
+{
+	char q[128];
+	const char *p;
+	int n;
+
+	snprintf(q, sizeof(q), "%.*s", (int)strcspn(param, " \r\n"), param);
+	if ((p = strstr(q, "limit=")) == NULL || !isdigit((unsigned char)p[6]))
+		return 20;
+	n = atoi(p + 6);
+	return n < 1 ? 1 : n > UI_EV_MAX ? UI_EV_MAX : n;
+}
+
+int uiapi_events_reply(char *response, size_t cap, const char *param, int sysop)
+{
+	static const char refusal[] = "{\"error\":\"sysop sign-in required\"}";
+	int n;
+
+	if (!sysop)
+		return snprintf(response, cap, "HTTP/1.1 401 Unauthorized\r\n"
+			"Content-Type: application/json\r\n"
+			"Content-Length: %d\r\n"
+			"Cache-Control: no-cache\r\n"
+			"Connection: close\r\n"
+			"\r\n%s", (int)strlen(refusal), refusal);
+	n = uiapi_events_json(response, cap - 2, events_limit(param));
+	strcpy(response + n, "\r\n");
+	return n + 2;
+}
+
 /* ---- /api/ui handlers (linbpq only) ---- */
 
 #ifndef UIAPI_TEST
@@ -1158,26 +1201,9 @@ int uiapi_api_mheard(char *response, char *token, char *param, int Local)
 	return jb_close(&b, "]\r\n");
 }
 
-/* limit=N anywhere in the query string, default 20, 1..200 */
-static int events_limit(const char *param)
-{
-	char q[128];
-	const char *p;
-	int n;
-
-	snprintf(q, sizeof(q), "%.*s", (int)strcspn(param, " \r\n"), param);
-	if ((p = strstr(q, "limit=")) == NULL || !isdigit((unsigned char)p[6]))
-		return 20;
-	n = atoi(p + 6);
-	return n < 1 ? 1 : n > UI_EV_MAX ? UI_EV_MAX : n;
-}
-
 int uiapi_api_events(char *response, char *token, char *param, int Local)
 {
-	int n = uiapi_events_json(response, UI_RESP_MAX - 2, events_limit(param));
-
-	strcpy(response + n, "\r\n");
-	return n + 2;
+	return uiapi_events_reply(response, UI_RESP_MAX, param, req_sysop);
 }
 
 #endif /* UIAPI_TEST */

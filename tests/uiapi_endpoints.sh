@@ -14,9 +14,20 @@ fails=0
 fail() { echo "FAIL: $*"; fails=$((fails + 1)); }
 pass() { echo "ok:   $*"; }
 
-# fetch <path> <outfile>: body to outfile, prints the HTTP status
+JAR="$TMP/jar"
+# fetch <path> <outfile> [curl args]: body to outfile, prints the HTTP status
 fetch() {
-  curl -s -m 10 -o "$2" -w '%{http_code}' "$BASE$1"
+  local path="$1" out="$2"
+  shift 2
+  curl -s -m 10 "$@" -o "$out" -w '%{http_code}' "$BASE$path"
+}
+
+# Sign in as the sanitized staging config's made-up test user; the node's
+# session cookie lands in $JAR.
+sign_in() {
+  rm -f "$JAR"
+  curl -s -m 10 -c "$JAR" -d 'user=sysop&password=staging' -o /dev/null "$BASE/Node/Signon?Node"
+  grep -q BPQSessionCookie "$JAR"
 }
 
 wait_up() {
@@ -31,9 +42,10 @@ wait_up() {
 }
 
 # check <path> <python expression over j, the parsed body>
+# AUTH=1 check ... sends the sysop session cookie.
 check() {
   local path="$1" expr="$2" f="$TMP/body" code
-  code="$(fetch "$path" "$f")"
+  if [[ "${AUTH:-0}" == 1 ]]; then code="$(fetch "$path" "$f" -b "$JAR")"; else code="$(fetch "$path" "$f")"; fi
   if [[ "$code" != 200 ]]; then
     fail "$path: HTTP $code $(head -c 80 "$f" 2>/dev/null)"
     return
@@ -66,8 +78,19 @@ check /api/ui/links "[p for p in j['ports'] if p['number'] == 2][0]['state'] == 
 check /api/ui/cms "set(j) == {'lastAttempt','lastSuccess','ok'}"
 check /api/ui/counts "set(j) == {'windowStart','full','sessions','messages','frames'} and isinstance(j['full'], bool)"
 check /api/ui/mheard/2 "isinstance(j, list) and all(set(e) >= {'call','packets','lastHeard','via'} for e in j)"
-check /api/ui/events "isinstance(j, list) and len(j) <= 20 and all(set(e) >= {'t','kind','detail'} and isinstance(e['detail'], dict) for e in j)"
-check '/api/ui/events?limit=500' "isinstance(j, list) and len(j) <= 200"
+
+# /api/ui/events answers only a signed-in sysop
+code="$(fetch /api/ui/events "$TMP/b")"
+if [[ "$code" == 401 ]] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])) == {"error": "sysop sign-in required"} else 1)' "$TMP/b"; then
+  pass "/api/ui/events without a session -> 401 with a JSON refusal"
+else
+  fail "/api/ui/events without a session -> $code $(head -c 80 "$TMP/b")"
+fi
+code="$(fetch /api/ui/events "$TMP/b" -H 'Cookie: BPQSessionCookie=N000000000000')"
+[[ "$code" == 401 ]] && pass "/api/ui/events with a made-up session cookie -> 401" || fail "/api/ui/events with a made-up cookie -> $code"
+sign_in || fail "staging sign-in did not set a session cookie"
+AUTH=1 check /api/ui/events "isinstance(j, list) and len(j) <= 20 and all(set(e) >= {'t','kind','detail'} and isinstance(e['detail'], dict) for e in j)"
+AUTH=1 check '/api/ui/events?limit=500' "isinstance(j, list) and len(j) <= 200"
 
 code="$(fetch /api/ui/mheard/99 "$TMP/b")"
 [[ "$code" == 404 ]] && pass "/api/ui/mheard/99 -> 404" || fail "/api/ui/mheard/99 -> $code"
@@ -88,8 +111,9 @@ EOF
 docker restart -t 20 "$NAME" >/dev/null || fail "docker restart"
 sleep 2
 wait_up || { fail "staging did not come back"; echo "$fails failed"; exit 1; }
-check '/api/ui/events?limit=1' "len(j) == 1 and j[0]['kind'] == 'restart'"
-check '/api/ui/events?limit=2' "j[1]['detail'] == {'marker': 'q\"b\\\\s'}"
+sign_in || fail "staging sign-in after the restart did not set a session cookie"
+AUTH=1 check '/api/ui/events?limit=1' "len(j) == 1 and j[0]['kind'] == 'restart'"
+AUTH=1 check '/api/ui/events?limit=2' "j[1]['detail'] == {'marker': 'q\"b\\\\s'}"
 check /api/ui/counts "j['windowStart'] == '$before'"
 
 if ((fails)); then

@@ -494,6 +494,37 @@ static void test_forward_without_cms_result_times_out_to_null(void)
 	passed++;
 }
 
+/* /api/ui/events answers only a signed-in sysop; anyone else gets a JSON refusal. */
+static void test_events_reply_needs_sysop(void)
+{
+	static char resp[16384];
+	const char *body;
+	int n;
+
+	ev_reset();
+	uiapi_event_at("cfgsave", "{\"ok\":true}", T0);
+	n = uiapi_events_reply(resp, sizeof resp, "?limit=5 HTTP/1.1", 0);
+	assert(n == (int)strlen(resp));
+	assert(strncmp(resp, "HTTP/1.1 401 Unauthorized\r\n", 27) == 0);
+	assert(strstr(resp, "\r\nContent-Type: application/json\r\n"));
+	body = strstr(resp, "\r\n\r\n");
+	assert(body);
+	body += 4;
+	assert(strcmp(body, "{\"error\":\"sysop sign-in required\"}") == 0);
+	{
+		char cl[64];
+		snprintf(cl, sizeof cl, "\r\nContent-Length: %d\r\n", (int)strlen(body));
+		assert(strstr(resp, cl));
+	}
+	assert(!strstr(resp, "cfgsave"));
+
+	n = uiapi_events_reply(resp, sizeof resp, "?limit=5 HTTP/1.1", 1);
+	assert(n == (int)strlen(resp));
+	assert(strncmp(resp, "[{\"t\":\"", 7) == 0 && strstr(resp, "cfgsave"));
+	assert(strcmp(resp + n - 3, "]\r\n") == 0);
+	passed++;
+}
+
 int main(void)
 {
 	snprintf(dir, sizeof dir, "/tmp/uiapi-ring-test-%d", (int)getpid());
@@ -517,6 +548,7 @@ int main(void)
 	test_event_flat_validator();
 	test_forward_takes_next_cms_result();
 	test_forward_without_cms_result_times_out_to_null();
+	test_events_reply_needs_sysop();
 
 	unlink(evlog);
 	snprintf(path, sizeof path, "%s/uiapi-counters.dat", dir);

@@ -20,6 +20,9 @@ afterEach(() => vi.useRealTimers());
 
 const portRow = (name: string): HTMLElement => screen.getByText(name, { selector: '.pname' }).closest('.port') as HTMLElement;
 
+// /api/ui/events is sysop-only; no public page may call it.
+afterEach(() => expect(vi.mocked(ui.getEvents)).not.toHaveBeenCalled());
+
 test('hero reads Gateway on the air with the frequency and modes from the station', async () => {
   render(<Overview />);
   const hero = await screen.findByRole('region', { name: 'Node status' });

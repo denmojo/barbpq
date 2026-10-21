@@ -1,5 +1,6 @@
 // The fork's /api/ui endpoints. Values the node does not know are null.
-import { getJson } from './http';
+import { getJson, HttpError } from './http';
+import { NotAuthorizedError, sysop } from './session';
 
 export interface StationPort {
   number: number;
@@ -37,5 +38,15 @@ export async function getLinkStates(): Promise<LinkState[]> {
 export const getCms = (): Promise<CmsState> => getJson<CmsState>('/api/ui/cms');
 export const getCounts = (): Promise<Counts> => getJson<Counts>('/api/ui/counts');
 export const getHeard = (port: number): Promise<Heard[]> => getJson<Heard[]>(`/api/ui/mheard/${port}`);
-export const getEvents = (limit?: number): Promise<UiEvent[]> =>
-  getJson<UiEvent[]>(limit === undefined ? '/api/ui/events' : `/api/ui/events?limit=${limit}`);
+/** Sysop only: the node answers 401 without a live sysop session, which reads as signed out. */
+export async function getEvents(limit?: number): Promise<UiEvent[]> {
+  try {
+    return await getJson<UiEvent[]>(limit === undefined ? '/api/ui/events' : `/api/ui/events?limit=${limit}`);
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 401) {
+      sysop.value = 'out';
+      throw new NotAuthorizedError();
+    }
+    throw e;
+  }
+}

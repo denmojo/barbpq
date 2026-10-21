@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/preact';
 import { PublicLayout } from '../PublicLayout';
 import { route } from '../../app/router';
 import { themeMode } from '../../ui/theme';
+import * as ui from '../../data/uiapi';
 import { expectNoOldPageLinks, prime } from './prime';
 
 vi.mock('../../data/api', async () => (await import('./mocks')).MOCK_API());
@@ -13,6 +14,9 @@ beforeEach(() => {
   location.hash = '#/overview';
   route.value = 'overview';
 });
+
+// /api/ui/events is sysop-only; no public page may call it.
+afterEach(() => expect(vi.mocked(ui.getEvents)).not.toHaveBeenCalled());
 
 test('header shows the node call, alias and locator, five tabs and the three controls', async () => {
   const { container } = render(<PublicLayout />);

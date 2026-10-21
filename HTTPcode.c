@@ -2149,6 +2149,7 @@ int InnerProcessHTTPMessage(struct ConnectionInfo * conn)
 			}
 			else
 			{
+				uiapi_set_sysop(COOKIE && Session != NULL); // uiapi hook
 				ReplyLen = APIProcessHTTPMessage(_REPLYBUFFER, Method, Context, MsgPtr, LOCAL, COOKIE);
 				
 				if (memcmp(_REPLYBUFFER, "HTTP", 4) == 0)

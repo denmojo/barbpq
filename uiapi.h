@@ -63,6 +63,14 @@ void uiapi_forward_event_at(const char *bbs, const char *script, time_t now);
 void uiapi_cms_result(int ok);
 void uiapi_cms_result_at(int ok, time_t now);
 
+/* The HTTP layer calls this before each /api request: 1 when the request
+   carries a live node sysop session cookie. /api/ui/events reads it. */
+void uiapi_set_sysop(int signed_in);
+
+/* The /api/ui/events reply: the newest events as JSON for a sysop, or a full
+   401 reply with a JSON body for anyone else. Returns the length. */
+int uiapi_events_reply(char *response, size_t cap, const char *param, int sysop);
+
 /* /api/ui handlers for nodeapi.c APIList */
 int uiapi_api_station(char *response, char *token, char *param, int Local);
 int uiapi_api_links(char *response, char *token, char *param, int Local);

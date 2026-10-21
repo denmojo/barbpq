@@ -8,6 +8,7 @@ import { Sessions } from '../Sessions';
 import * as api from '../../data/api';
 import * as pages from '../../data/pages';
 import { ParseError } from '../../data/http';
+import * as ui from '../../data/uiapi';
 import { expectNoOldPageLinks, prime } from './prime';
 import { NOW } from './sample';
 
@@ -23,6 +24,9 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 const rowOf = (text: string): HTMLElement => screen.getByText(text).closest('tr') as HTMLElement;
+
+// /api/ui/events is sysop-only; no public page may call it.
+afterEach(() => expect(vi.mocked(ui.getEvents)).not.toHaveBeenCalled());
 
 describe('Ports', () => {
   test('lists every port with frequency, address, TXTAIL and link state', async () => {
